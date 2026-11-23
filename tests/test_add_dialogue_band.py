@@ -391,6 +391,79 @@ class TestEndToEndRendering(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertTrue((out / "001_test.png").exists())
 
+    def test_speaker_styles_scale_and_gap(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "src"
+            out = root / "out"
+            src.mkdir()
+            p1 = src / "001_sample.png"
+            Image.new("RGB", (832, 1216), (90, 110, 140)).save(p1)
+            csv_path = root / "script.csv"
+            csv_path.write_text("001,彼女,短いセリフです\n", encoding="utf-8")
+
+            fonts = adb.resolve_fonts()
+            dummy = Image.new("RGB", (1, 1))
+            draw = ImageDraw.Draw(dummy)
+            base_cfg = {
+                "mode": "overlay",
+                "position": "bottom",
+                "band": 0.24,
+                "max_lines": 2,
+                "font_scale": 0.70,
+                "speaker_scale": 1.0,
+                "speaker_style": "plate",
+                "speaker_gap": 0.50,
+                "uniform_font_ratio": None,
+                "pad_x": 0.045,
+                "line_height": 1.45,
+                "band_color": adb.DEFAULT_BAND_COLOR,
+                "text_color": adb.DEFAULT_TEXT_COLOR,
+                "narration_color": adb.DEFAULT_NARRATION_COLOR,
+                "overlay_opacity": 0.35,
+                "overlay_fade": 0.30,
+                "overlay_margin": 0.0,
+                "text_outline": 2,
+                "align": "left",
+                "text_offset_y": 0.0,
+                "colors": {"彼女": (255, 158, 199)},
+                **fonts,
+            }
+            # speaker_scale is independent of body font_scale
+            l_normal = adb._compute_layout(832, 1216, "彼女", "短いセリフ", base_cfg, draw)
+            cfg_big_body = dict(base_cfg, font_scale=1.30)
+            l_big_body = adb._compute_layout(832, 1216, "彼女", "短いセリフ", cfg_big_body, draw)
+            self.assertEqual(l_normal["name_size"], l_big_body["name_size"])
+
+            cfg_big_sp = dict(base_cfg, speaker_scale=1.40)
+            l_big_sp = adb._compute_layout(832, 1216, "彼女", "短いセリフ", cfg_big_sp, draw)
+            self.assertGreater(l_big_sp["name_size"], l_normal["name_size"])
+
+            for mode in ("extend", "overlay"):
+                for style in ("plate", "bar", "bracket", "plain"):
+                    c = dict(base_cfg, mode=mode, speaker_style=style, speaker_scale=1.2, speaker_gap=0.4)
+                    im, meta = adb.render_image(p1, "彼女", "テストセリフ", c)
+                    self.assertFalse(meta["overflow"])
+                    self.assertEqual(im.width, 832)
+
+            rc = adb.main(
+                [
+                    str(src),
+                    str(csv_path),
+                    str(out),
+                    "--mode",
+                    "overlay",
+                    "--speaker-style",
+                    "plate",
+                    "--speaker-scale",
+                    "1.25",
+                    "--speaker-gap",
+                    "0.45",
+                ]
+            )
+            self.assertEqual(rc, 0)
+            self.assertTrue((out / "001_sample.png").exists())
+
 
 class TestGuiApp(unittest.TestCase):
     def test_gui_app_preview_and_config(self):
@@ -415,8 +488,11 @@ class TestGuiApp(unittest.TestCase):
             self.assertEqual(im_ov.size, (832, 1216))
             self.assertIn("832x1216", info_ov)
 
-            # v1.2 controls & config roundtrip
+            # v1.2 & v1.3 controls & config roundtrip
             app.uniform_font_var.set(True)
+            app.speaker_style_var.set("bracket")
+            app.speaker_scale_var.set(1.35)
+            app.speaker_gap_var.set(0.65)
             app.position_var.set("top")
             app.align_var.set("center")
             app.overlay_opacity_var.set(50.0)
@@ -438,8 +514,12 @@ class TestGuiApp(unittest.TestCase):
 
                 app.reset_style_defaults()
                 self.assertEqual(app.position_var.get(), "bottom")
+                self.assertEqual(app.speaker_style_var.get(), "plate")
                 self.assertTrue(app.load_config_file(str(cfg_out), silent=True))
                 self.assertTrue(app.uniform_font_var.get())
+                self.assertEqual(app.speaker_style_var.get(), "bracket")
+                self.assertAlmostEqual(app.speaker_scale_var.get(), 1.35, places=2)
+                self.assertAlmostEqual(app.speaker_gap_var.get(), 0.65, places=2)
                 self.assertEqual(app.position_var.get(), "top")
                 self.assertEqual(app.align_var.get(), "center")
                 self.assertAlmostEqual(app.overlay_opacity_var.get(), 50.0, places=1)

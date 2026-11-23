@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Dialogue band batch composer v1.2.
+"""Dialogue band batch composer v1.3.
 
 Usage:
     python3 add_dialogue_band.py SRC_DIR SCRIPT.csv OUT_DIR [options]
@@ -561,15 +561,30 @@ def process_blank_band(img_path, out_path, cfg):
     return save_image(canvas, out_path, fmt=cfg["format"], quality=cfg["quality"])
 
 
+def _plate_fill_rgb(band_color, is_overlay):
+    if is_overlay:
+        return band_color
+    r, g, b = band_color
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    if lum < 128:
+        return (min(255, r + 18), min(255, g + 19), min(255, b + 24))
+    return (max(0, r - 18), max(0, g - 18), max(0, b - 16))
+
+
 def _compute_layout(w, h, speaker, text, cfg, draw):
     band_h = max(1, int(round(w * cfg["band"])))
     if cfg.get("mode") == "overlay":
         band_h = min(h, band_h)
     scale = float(cfg.get("font_scale", 1.0))
+    speaker_scale = max(0.5, min(2.5, float(cfg.get("speaker_scale", 1.0))))
+    speaker_style = str(cfg.get("speaker_style", "plate")).lower()
+    if speaker_style not in ("plate", "bar", "bracket", "plain"):
+        speaker_style = "plate"
+
     pad_x = max(0.01, min(0.35, float(cfg.get("pad_x", 0.045))))
     pad = max(4, min(max(4, (w - 20) // 2), int(round(w * pad_x))))
     v_pad = max(4, int(round(band_h * 0.10)))
-    name_size = max(12, int(round(w * 0.036 * scale)))
+    name_size = max(14, int(round(w * 0.042 * speaker_scale)))
     min_size = max(10, int(round(w * 0.024 * scale)))
     uniform_ratio = cfg.get("uniform_font_ratio")
     if uniform_ratio is not None:
@@ -584,12 +599,25 @@ def _compute_layout(w, h, speaker, text, cfg, draw):
     nb = (0, 0, 0, 0)
     name_h = 0
     name_gap = 0
+    plate_pad_x = 0
+    plate_pad_y = 0
+    speaker_box_h = 0
+    display_speaker = speaker
     if speaker:
+        if speaker_style == "bracket" and not (speaker.startswith("\u3010") and speaker.endswith("\u3011")):
+            display_speaker = f"\u3010{speaker}\u3011"
         f_name = ImageFont.truetype(cfg["bold"], name_size)
-        nb = draw.textbbox((0, 0), speaker, font=f_name)
+        nb = draw.textbbox((0, 0), display_speaker, font=f_name)
         name_h = max(nb[3] - nb[1], int(round(name_size * 0.85)))
-        name_gap = max(4, int(round(name_size * 0.45)))
-        name_block_h = name_h + name_gap
+        if speaker_style == "plate":
+            plate_pad_y = max(4, int(round(name_size * 0.22)))
+            plate_pad_x = max(8, int(round(name_size * 0.42)))
+            speaker_box_h = name_h + plate_pad_y * 2
+        else:
+            speaker_box_h = name_h
+        gap_mult = max(0.15, min(1.50, float(cfg.get("speaker_gap", 0.50))))
+        name_gap = max(4, int(round(name_size * gap_mult)))
+        name_block_h = speaker_box_h + name_gap
 
     avail_h = max(1, band_h - v_pad * 2 - name_block_h)
     body_path = cfg["font"] if speaker else cfg["serif"]
@@ -615,6 +643,11 @@ def _compute_layout(w, h, speaker, text, cfg, draw):
         "name_h": name_h,
         "name_gap": name_gap,
         "name_block_h": name_block_h,
+        "display_speaker": display_speaker,
+        "speaker_style": speaker_style,
+        "plate_pad_x": plate_pad_x,
+        "plate_pad_y": plate_pad_y,
+        "speaker_box_h": speaker_box_h,
         "font": font,
         "lines": lines,
         "line_h": line_h,
@@ -712,59 +745,183 @@ def render_image(img_path, speaker, text, cfg):
 
     outline_lvl = max(0, int(cfg.get("text_outline", 0)))
     body_stroke = max(1, int(round(outline_lvl * w / 832.0))) if outline_lvl > 0 else 0
-    name_stroke = max(1, int(round(outline_lvl * 0.75 * w / 832.0))) if outline_lvl > 0 else 0
+    name_stroke = body_stroke
 
     if speaker:
-        accent_w = max(3, w // 220)
-        accent_gap = max(6, int(round(layout["name_size"] * 0.3)))
         speaker_color = cfg["colors"].get(speaker, MAIN_SPEAKER_COLOR)
-        sp_w = draw_target.textlength(speaker, font=layout["f_name"])
-        total_sp_w = accent_w + accent_gap + sp_w
-        if align == "center":
-            bar_x = int(round(pad + (text_area_w - total_sp_w) / 2))
-        elif align == "right":
-            bar_x = int(round(pad + text_area_w - total_sp_w))
-        else:
-            bar_x = pad
-
-        bar_box = [bar_x, block_top, bar_x + accent_w - 1, block_top + layout["name_h"]]
-        name_x = bar_x + accent_w + accent_gap
-        name_y = block_top - layout["nb"][1]
         sp_outline = _outline_rgb(speaker_color)
-        if is_overlay:
-            s_off = max(1, layout["name_size"] // 22)
-            draw_target.rectangle(
-                [bar_box[0] + s_off, bar_box[1] + s_off, bar_box[2] + s_off, bar_box[3] + s_off],
-                fill=shadow_color,
-            )
-            draw_target.text(
-                (name_x + s_off, name_y + s_off),
-                speaker,
-                font=layout["f_name"],
-                fill=shadow_color,
-                stroke_width=name_stroke,
-                stroke_fill=shadow_color,
-            )
-            draw_target.rectangle(bar_box, fill=(*speaker_color, 255))
-            draw_target.text(
-                (name_x, name_y),
-                speaker,
-                font=layout["f_name"],
-                fill=(*speaker_color, 255),
-                stroke_width=name_stroke,
-                stroke_fill=(*sp_outline, 255) if name_stroke > 0 else None,
-            )
+        disp_sp = layout["display_speaker"]
+        sp_style = layout["speaker_style"]
+        sp_w = draw_target.textlength(disp_sp, font=layout["f_name"])
+        glyph_sp_h = max(1, layout["nb"][3] - layout["nb"][1])
+        s_off = max(1, layout["name_size"] // 22)
+
+        if sp_style == "plate":
+            accent_w = max(4, int(round(w / 180)))
+            accent_gap = max(6, int(round(layout["name_size"] * 0.30)))
+            plate_pad_x = layout["plate_pad_x"]
+            plate_pad_y = layout["plate_pad_y"]
+            bar_left_off = max(6, int(round(plate_pad_x * 0.75)))
+            plate_w = bar_left_off + accent_w + accent_gap + sp_w + plate_pad_x
+            plate_h = layout["speaker_box_h"]
+
+            if align == "center":
+                plate_x = pad + (text_area_w - plate_w) / 2
+            elif align == "right":
+                plate_x = pad + text_area_w - plate_w
+            else:
+                plate_x = pad
+
+            px0 = int(round(plate_x))
+            px1 = int(round(plate_x + plate_w))
+            plate_box = [px0, block_top, px1, block_top + plate_h]
+            radius = min(max(4, int(round(layout["name_size"] * 0.22))), max(1, plate_h // 2))
+            border_w = max(1, w // 600)
+            plate_bg = _plate_fill_rgb(band_color, is_overlay)
+
+            bar_x = px0 + bar_left_off
+            bar_top = block_top + plate_pad_y
+            bar_bot = bar_top + layout["name_h"]
+            bar_box = [bar_x, bar_top, bar_x + accent_w - 1, bar_bot]
+            bar_rad = min(max(1, accent_w // 2), max(1, layout["name_h"] // 2))
+
+            name_x = bar_x + accent_w + accent_gap
+            name_y = bar_top + max(0, (layout["name_h"] - glyph_sp_h) // 2) - layout["nb"][1]
+
+            if is_overlay:
+                draw_target.rounded_rectangle(
+                    [plate_box[0] + s_off, plate_box[1] + s_off, plate_box[2] + s_off, plate_box[3] + s_off],
+                    radius=radius,
+                    fill=(0, 0, 0, 145),
+                )
+                draw_target.rounded_rectangle(
+                    plate_box,
+                    radius=radius,
+                    fill=(*plate_bg, 215),
+                    outline=(*speaker_color, 195),
+                    width=border_w,
+                )
+                draw_target.rounded_rectangle(bar_box, radius=bar_rad, fill=(*speaker_color, 255))
+                draw_target.text(
+                    (name_x + s_off, name_y + s_off),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=shadow_color,
+                    stroke_width=name_stroke,
+                    stroke_fill=shadow_color,
+                )
+                draw_target.text(
+                    (name_x, name_y),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=(*speaker_color, 255),
+                    stroke_width=name_stroke,
+                    stroke_fill=(*sp_outline, 255) if name_stroke > 0 else None,
+                )
+            else:
+                draw_target.rounded_rectangle(
+                    plate_box,
+                    radius=radius,
+                    fill=plate_bg,
+                    outline=speaker_color,
+                    width=border_w,
+                )
+                draw_target.rounded_rectangle(bar_box, radius=bar_rad, fill=speaker_color)
+                draw_target.text(
+                    (name_x, name_y),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=speaker_color,
+                    stroke_width=name_stroke,
+                    stroke_fill=sp_outline if name_stroke > 0 else None,
+                )
+
+        elif sp_style == "bar":
+            accent_w = max(4, int(round(w / 150)))
+            accent_gap = max(8, int(round(layout["name_size"] * 0.32)))
+            total_sp_w = accent_w + accent_gap + sp_w
+            if align == "center":
+                bar_x = int(round(pad + (text_area_w - total_sp_w) / 2))
+            elif align == "right":
+                bar_x = int(round(pad + text_area_w - total_sp_w))
+            else:
+                bar_x = pad
+
+            bar_box = [bar_x, block_top, bar_x + accent_w - 1, block_top + layout["name_h"]]
+            bar_rad = min(max(1, accent_w // 2), max(1, layout["name_h"] // 2))
+            name_x = bar_x + accent_w + accent_gap
+            name_y = block_top + max(0, (layout["name_h"] - glyph_sp_h) // 2) - layout["nb"][1]
+            if is_overlay:
+                draw_target.rounded_rectangle(
+                    [bar_box[0] + s_off, bar_box[1] + s_off, bar_box[2] + s_off, bar_box[3] + s_off],
+                    radius=bar_rad,
+                    fill=shadow_color,
+                )
+                draw_target.text(
+                    (name_x + s_off, name_y + s_off),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=shadow_color,
+                    stroke_width=name_stroke,
+                    stroke_fill=shadow_color,
+                )
+                draw_target.rounded_rectangle(bar_box, radius=bar_rad, fill=(*speaker_color, 255))
+                draw_target.text(
+                    (name_x, name_y),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=(*speaker_color, 255),
+                    stroke_width=name_stroke,
+                    stroke_fill=(*sp_outline, 255) if name_stroke > 0 else None,
+                )
+            else:
+                draw_target.rounded_rectangle(bar_box, radius=bar_rad, fill=speaker_color)
+                draw_target.text(
+                    (name_x, name_y),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=speaker_color,
+                    stroke_width=name_stroke,
+                    stroke_fill=sp_outline if name_stroke > 0 else None,
+                )
+
         else:
-            draw_target.rectangle(bar_box, fill=speaker_color)
-            draw_target.text(
-                (name_x, name_y),
-                speaker,
-                font=layout["f_name"],
-                fill=speaker_color,
-                stroke_width=name_stroke,
-                stroke_fill=sp_outline if name_stroke > 0 else None,
-            )
-        body_y = block_top + layout["name_h"] + layout["name_gap"] - ref_b[1]
+            # 'bracket' or 'plain'
+            if align == "center":
+                name_x = pad + (text_area_w - sp_w) / 2
+            elif align == "right":
+                name_x = pad + (text_area_w - sp_w)
+            else:
+                name_x = pad
+            name_y = block_top + max(0, (layout["name_h"] - glyph_sp_h) // 2) - layout["nb"][1]
+            if is_overlay:
+                draw_target.text(
+                    (name_x + s_off, name_y + s_off),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=shadow_color,
+                    stroke_width=name_stroke,
+                    stroke_fill=shadow_color,
+                )
+                draw_target.text(
+                    (name_x, name_y),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=(*speaker_color, 255),
+                    stroke_width=name_stroke,
+                    stroke_fill=(*sp_outline, 255) if name_stroke > 0 else None,
+                )
+            else:
+                draw_target.text(
+                    (name_x, name_y),
+                    disp_sp,
+                    font=layout["f_name"],
+                    fill=speaker_color,
+                    stroke_width=name_stroke,
+                    stroke_fill=sp_outline if name_stroke > 0 else None,
+                )
+
+        body_y = block_top + layout["speaker_box_h"] + layout["name_gap"] - ref_b[1]
     else:
         body_y = block_top - ref_b[1]
 
@@ -912,6 +1069,9 @@ def build_cfg(args, file_cfg):
         "text_offset_y": float(pick_opt(args.text_offset_y, "text_offset_y", 0.0)),
         "pad_x": float(pick_opt(args.pad_x, "pad_x", 0.045)),
         "line_height": float(pick_opt(args.line_height, "line_height", 1.45)),
+        "speaker_scale": float(pick_opt(args.speaker_scale, "speaker_scale", 1.0)),
+        "speaker_style": str(pick_opt(args.speaker_style, "speaker_style", "plate")).lower(),
+        "speaker_gap": float(pick_opt(args.speaker_gap, "speaker_gap", 0.50)),
         "auto_speaker_colors": bool(args.speaker_colors or file_cfg.get("auto_speaker_colors", False)),
         "colors": colors,
         **fonts,
@@ -919,7 +1079,7 @@ def build_cfg(args, file_cfg):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.2")
+    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.3")
     ap.add_argument("src")
     ap.add_argument("script")
     ap.add_argument("out")
@@ -930,6 +1090,9 @@ def main(argv=None):
     ap.add_argument("--font-serif", default=None)
     ap.add_argument("--font-bold", default=None)
     ap.add_argument("--font-scale", type=float, default=None)
+    ap.add_argument("--speaker-scale", type=float, default=None)
+    ap.add_argument("--speaker-style", choices=["plate", "bar", "bracket", "plain"], default=None)
+    ap.add_argument("--speaker-gap", type=float, default=None)
     ap.add_argument("--speaker-colors", action="store_true")
     ap.add_argument("--config", default=None)
     ap.add_argument("--uniform-height", action="store_true")

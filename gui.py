@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Desktop GUI for Dialogue Band Batch Composer v1.2."""
+"""Desktop GUI for Dialogue Band Batch Composer v1.3."""
 
 import json
 import os
@@ -32,7 +32,7 @@ class DialogueBandApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("帯テキスト一括合成ツール v1.2")
+        self.root.title("帯テキスト一括合成ツール v1.3")
         self.root.geometry("1160x800")
         self.root.minsize(960, 680)
 
@@ -87,7 +87,14 @@ class DialogueBandApp:
         self.narration_color_var = tk.StringVar(value=adb.rgb_to_hex(adb.DEFAULT_NARRATION_COLOR))
         self.speaker_sel_var = tk.StringVar()
 
+        # Speaker style & sizing
+        self.speaker_style_var = tk.StringVar(value="plate")
+        self.speaker_scale_var = tk.DoubleVar(value=1.0)
+        self.speaker_gap_var = tk.DoubleVar(value=0.50)
+
         # Scale readout labels
+        self.speaker_scale_lbl_var = tk.StringVar(value="1.00x")
+        self.speaker_gap_lbl_var = tk.StringVar(value="0.50")
         self.offset_y_lbl_var = tk.StringVar(value="0%")
         self.pad_x_lbl_var = tk.StringVar(value="4.5%")
         self.line_h_lbl_var = tk.StringVar(value="1.45")
@@ -149,13 +156,16 @@ class DialogueBandApp:
         nb.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
 
         tab_basic = ttk.Frame(nb, padding=8)
+        tab_speaker = ttk.Frame(nb, padding=8)
         tab_style = ttk.Frame(nb, padding=8)
         tab_detail = ttk.Frame(nb, padding=8)
         nb.add(tab_basic, text=" 基本 ")
-        nb.add(tab_style, text=" 位置・透過・色 ")
+        nb.add(tab_speaker, text=" 話者・色 ")
+        nb.add(tab_style, text=" 位置・透過 ")
         nb.add(tab_detail, text=" フォント・詳細 ")
 
         self._build_tab_basic(tab_basic)
+        self._build_tab_speaker(tab_speaker)
         self._build_tab_style(tab_style)
         self._build_tab_detail(tab_detail)
 
@@ -289,11 +299,73 @@ class DialogueBandApp:
 
             ttk.Button(parent, text="戻す", width=4, command=do_reset).grid(row=row, column=3, padx=(4, 0))
 
+    def _build_tab_speaker(self, parent):
+        parent.columnconfigure(0, weight=1)
+
+        f_sp = ttk.LabelFrame(parent, text="話者名デザイン", padding=8)
+        f_sp.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        f_sp.columnconfigure(1, weight=1)
+
+        ttk.Label(f_sp, text="スタイル").grid(row=0, column=0, sticky="nw", pady=4, padx=(0, 6))
+        st_box = ttk.Frame(f_sp)
+        st_box.grid(row=0, column=1, columnspan=3, sticky="w", pady=2)
+        styles = (
+            ("プレート (plate)", "plate"),
+            ("左バー (bar)", "bar"),
+            ("【括弧】 (bracket)", "bracket"),
+            ("なし (plain)", "plain"),
+        )
+        for idx, (txt, val) in enumerate(styles):
+            ttk.Radiobutton(
+                st_box, text=txt, value=val, variable=self.speaker_style_var, command=self.schedule_preview
+            ).grid(row=idx // 2, column=idx % 2, sticky="w", padx=(0, 12), pady=2)
+
+        self._add_scale_row(
+            f_sp, 1, "話者名サイズ", self.speaker_scale_var, self.speaker_scale_lbl_var, 0.60, 2.00,
+            lambda v: f"{v:.2f}x", reset_val=1.00,
+        )
+        self._add_scale_row(
+            f_sp, 2, "本文との間隔", self.speaker_gap_var, self.speaker_gap_lbl_var, 0.15, 1.20,
+            lambda v: f"{v:.2f}", reset_val=0.50,
+        )
+
+        f_col = ttk.LabelFrame(parent, text="カラー設定", padding=8)
+        f_col.grid(row=1, column=0, sticky="ew")
+        f_col.columnconfigure(1, weight=1)
+
+        self._color_swatches = {}
+        row_colors = ttk.Frame(f_col)
+        row_colors.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 8))
+        for idx, (title, cvar) in enumerate(
+            (("帯色", self.band_color_var), ("本文", self.text_color_var), ("地の文", self.narration_color_var))
+        ):
+            ttk.Label(row_colors, text=title).pack(side="left", padx=(0 if idx == 0 else 10, 4))
+            sw = tk.Label(row_colors, width=3, relief="solid", bd=1, bg=cvar.get())
+            sw.pack(side="left", padx=(0, 4))
+            self._color_swatches[title] = (sw, cvar)
+            ttk.Button(
+                row_colors,
+                text="変更",
+                width=4,
+                command=lambda t=title, v=cvar: self._pick_color_var(t, v),
+            ).pack(side="left")
+
+        sp_row = ttk.Frame(f_col)
+        sp_row.grid(row=1, column=0, columnspan=4, sticky="ew")
+        ttk.Label(sp_row, text="話者色").pack(side="left", padx=(0, 6))
+        self.speaker_combo = ttk.Combobox(sp_row, textvariable=self.speaker_sel_var, state="readonly", width=12)
+        self.speaker_combo.pack(side="left", padx=(0, 6))
+        self.speaker_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_speaker_swatch())
+        self.speaker_swatch = tk.Label(sp_row, width=3, relief="solid", bd=1, bg="#FF9EC7")
+        self.speaker_swatch.pack(side="left", padx=(0, 6))
+        ttk.Button(sp_row, text="色変更", width=6, command=self._pick_speaker_color).pack(side="left", padx=(0, 4))
+        ttk.Button(sp_row, text="解除", width=5, command=self._clear_speaker_color).pack(side="left")
+
     def _build_tab_style(self, parent):
         parent.columnconfigure(0, weight=1)
 
         f_pos = ttk.LabelFrame(parent, text="位置・余白・行間", padding=8)
-        f_pos.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        f_pos.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         f_pos.columnconfigure(1, weight=1)
 
         ttk.Label(f_pos, text="帯の位置").grid(row=0, column=0, sticky="w", pady=2)
@@ -328,7 +400,7 @@ class DialogueBandApp:
         )
 
         f_ov = ttk.LabelFrame(parent, text="半透明 (overlay)・縁取り", padding=8)
-        f_ov.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        f_ov.grid(row=1, column=0, sticky="ew")
         f_ov.columnconfigure(1, weight=1)
 
         self._add_scale_row(
@@ -354,38 +426,6 @@ class DialogueBandApp:
         ttk.Label(out_box, text="0=なし / 1〜4 (薄い透過でも見やすくなります)", foreground="#666666").pack(
             side="left", padx=(8, 0)
         )
-
-        f_col = ttk.LabelFrame(parent, text="カラー設定", padding=8)
-        f_col.grid(row=2, column=0, sticky="ew")
-        f_col.columnconfigure(1, weight=1)
-
-        self._color_swatches = {}
-        row_colors = ttk.Frame(f_col)
-        row_colors.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 6))
-        for idx, (title, cvar) in enumerate(
-            (("帯色", self.band_color_var), ("本文", self.text_color_var), ("地の文", self.narration_color_var))
-        ):
-            ttk.Label(row_colors, text=title).pack(side="left", padx=(0 if idx == 0 else 10, 4))
-            sw = tk.Label(row_colors, width=3, relief="solid", bd=1, bg=cvar.get())
-            sw.pack(side="left", padx=(0, 4))
-            self._color_swatches[title] = (sw, cvar)
-            ttk.Button(
-                row_colors,
-                text="変更",
-                width=4,
-                command=lambda t=title, v=cvar: self._pick_color_var(t, v),
-            ).pack(side="left")
-
-        sp_row = ttk.Frame(f_col)
-        sp_row.grid(row=1, column=0, columnspan=4, sticky="ew")
-        ttk.Label(sp_row, text="話者色").pack(side="left", padx=(0, 6))
-        self.speaker_combo = ttk.Combobox(sp_row, textvariable=self.speaker_sel_var, state="readonly", width=12)
-        self.speaker_combo.pack(side="left", padx=(0, 6))
-        self.speaker_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_speaker_swatch())
-        self.speaker_swatch = tk.Label(sp_row, width=3, relief="solid", bd=1, bg="#FF9EC7")
-        self.speaker_swatch.pack(side="left", padx=(0, 6))
-        ttk.Button(sp_row, text="色変更", width=6, command=self._pick_speaker_color).pack(side="left", padx=(0, 4))
-        ttk.Button(sp_row, text="解除", width=5, command=self._clear_speaker_color).pack(side="left")
 
     def _build_tab_detail(self, parent):
         parent.columnconfigure(0, weight=1)
@@ -415,7 +455,7 @@ class DialogueBandApp:
         ttk.Entry(f_misc, textvariable=self.only_var).grid(row=0, column=1, sticky="ew", pady=4)
         ttk.Label(f_misc, text="例: 001,003", foreground="#666666").grid(row=0, column=2, sticky="w", padx=(6, 0))
 
-        ttk.Button(f_misc, text="位置・透過・色設定を初期値に戻す", command=self.reset_style_defaults).grid(
+        ttk.Button(f_misc, text="見た目・話者設定を初期値に戻す", command=self.reset_style_defaults).grid(
             row=1, column=0, columnspan=3, sticky="w", pady=(8, 2)
         )
 
@@ -463,6 +503,8 @@ class DialogueBandApp:
     # --- Color & Style Helpers ---
 
     def _sync_scale_labels(self):
+        self.speaker_scale_lbl_var.set(f"{self.speaker_scale_var.get():.2f}x")
+        self.speaker_gap_lbl_var.set(f"{self.speaker_gap_var.get():.2f}")
         self.offset_y_lbl_var.set(f"{self.text_offset_y_var.get():+.0f}%")
         self.pad_x_lbl_var.set(f"{self.pad_x_var.get():.1f}%")
         self.line_h_lbl_var.set(f"{self.line_height_var.get():.2f}")
@@ -542,6 +584,9 @@ class DialogueBandApp:
     def reset_style_defaults(self):
         self._initializing = True
         try:
+            self.speaker_style_var.set("plate")
+            self.speaker_scale_var.set(1.0)
+            self.speaker_gap_var.set(0.50)
             self.position_var.set("bottom")
             self.align_var.set("left")
             self.text_offset_y_var.set(0.0)
@@ -628,6 +673,9 @@ class DialogueBandApp:
             "text_offset_y": round(float(self.text_offset_y_var.get()) / 100.0, 4),
             "pad_x": round(float(self.pad_x_var.get()) / 100.0, 4),
             "line_height": round(float(self.line_height_var.get()), 2),
+            "speaker_style": self.speaker_style_var.get(),
+            "speaker_scale": round(float(self.speaker_scale_var.get()), 2),
+            "speaker_gap": round(float(self.speaker_gap_var.get()), 2),
             "format": self.format_var.get(),
             "quality": int(self.quality_var.get()),
             "band_color": self.band_color_var.get(),
@@ -708,6 +756,12 @@ class DialogueBandApp:
                 self.pad_x_var.set(float(data["pad_x"]) * 100.0)
             if "line_height" in data:
                 self.line_height_var.set(float(data["line_height"]))
+            if data.get("speaker_style") in ("plate", "bar", "bracket", "plain"):
+                self.speaker_style_var.set(data["speaker_style"])
+            if "speaker_scale" in data:
+                self.speaker_scale_var.set(float(data["speaker_scale"]))
+            if "speaker_gap" in data:
+                self.speaker_gap_var.set(float(data["speaker_gap"]))
             if "overlay_opacity" in data:
                 self.overlay_opacity_var.set(float(data["overlay_opacity"]) * 100.0)
             if "overlay_fade" in data:
@@ -776,6 +830,9 @@ class DialogueBandApp:
             "text_offset_y": float(self.text_offset_y_var.get()) / 100.0,
             "pad_x": float(self.pad_x_var.get()) / 100.0,
             "line_height": float(self.line_height_var.get()),
+            "speaker_style": self.speaker_style_var.get(),
+            "speaker_scale": float(self.speaker_scale_var.get()),
+            "speaker_gap": float(self.speaker_gap_var.get()),
             "format": self.format_var.get().lower(),
             "quality": int(self.quality_var.get()),
             "band_color": adb.parse_color(self.band_color_var.get(), adb.DEFAULT_BAND_COLOR),
@@ -808,6 +865,9 @@ class DialogueBandApp:
             round(cfg["font_scale"], 4),
             round(cfg["pad_x"], 4),
             round(cfg["line_height"], 4),
+            cfg["speaker_style"],
+            round(cfg["speaker_scale"], 4),
+            round(cfg["speaker_gap"], 4),
             cfg["mode"],
             cfg["font"],
             cfg["serif"],
@@ -1144,6 +1204,7 @@ class DialogueBandApp:
                     ("mode", self.mode_var),
                     ("position", self.position_var),
                     ("align", self.align_var),
+                    ("speaker_style", self.speaker_style_var),
                     ("band", self.band_var),
                     ("max_lines", self.max_lines_var),
                     ("font_scale", self.font_scale_var),
@@ -1164,6 +1225,8 @@ class DialogueBandApp:
                     ("text_offset_y_pct", self.text_offset_y_var),
                     ("pad_x_pct", self.pad_x_var),
                     ("line_height", self.line_height_var),
+                    ("speaker_scale", self.speaker_scale_var),
+                    ("speaker_gap", self.speaker_gap_var),
                     ("overlay_opacity_pct", self.overlay_opacity_var),
                     ("overlay_fade_pct", self.overlay_fade_var),
                     ("overlay_margin_pct", self.overlay_margin_var),
@@ -1225,6 +1288,9 @@ class DialogueBandApp:
                 "text_offset_y_pct": self.text_offset_y_var.get(),
                 "pad_x_pct": self.pad_x_var.get(),
                 "line_height": self.line_height_var.get(),
+                "speaker_style": self.speaker_style_var.get(),
+                "speaker_scale": self.speaker_scale_var.get(),
+                "speaker_gap": self.speaker_gap_var.get(),
                 "overlay_opacity_pct": self.overlay_opacity_var.get(),
                 "overlay_fade_pct": self.overlay_fade_var.get(),
                 "overlay_margin_pct": self.overlay_margin_var.get(),
