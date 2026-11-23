@@ -1,0 +1,17 @@
+{
+  "mode": "extend",
+  "band": 0.24,
+  "max_lines": 2,
+  "font_scale": 1.0,
+  "uniform_height": false,
+  "format": "keep",
+  "quality": 92,
+  "band_color": "#0C0C0E",
+  "overlay_opacity": 0.76,
+  "text_color": "#FFFFFF",
+  "narration_color": "#EAEDF5",
+  "speaker_colors": {
+    "彼女": "#FF9EC7",
+    "彼": "#96C8FF"
+  }
+}
