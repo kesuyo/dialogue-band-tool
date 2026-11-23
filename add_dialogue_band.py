@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Dialogue band batch composer v1.1.
+"""Dialogue band batch composer v1.2.
 
 Usage:
     python3 add_dialogue_band.py SRC_DIR SCRIPT.csv OUT_DIR [options]
@@ -149,6 +149,18 @@ def parse_color(val, default):
         if len(s) == 6:
             return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
     raise ValueError(f"Invalid RGB/hex color: {val!r}")
+
+
+def rgb_to_hex(rgb):
+    """Format an RGB 3-tuple as '#RRGGBB'."""
+    r, g, b = (max(0, min(255, int(c))) for c in rgb)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _outline_rgb(fg_rgb):
+    r, g, b = fg_rgb
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    return (0, 0, 0) if lum > 128 else (255, 255, 255)
 
 
 def _is_hiragana(ch):
@@ -391,7 +403,18 @@ def _wrap_all_paragraphs(draw, text, font, max_w, max_lines):
     return lines
 
 
-def fit_text(draw, text, max_w, max_h, font_path, max_lines, start_size=44, min_size=20, step=2):
+def fit_text(
+    draw,
+    text,
+    max_w,
+    max_h,
+    font_path,
+    max_lines,
+    start_size=44,
+    min_size=20,
+    step=2,
+    line_height_mult=1.45,
+):
     """Find the largest font size that fits text inside max_w x max_h within max_lines."""
     step = max(1, step)
     start_size = max(min_size, start_size)
@@ -402,7 +425,7 @@ def fit_text(draw, text, max_w, max_h, font_path, max_lines, start_size=44, min_
     for size in sizes:
         font = ImageFont.truetype(font_path, size)
         lines = _wrap_all_paragraphs(draw, text, font, max_w, max_lines)
-        line_h = max(1, int(round(size * 1.45)))
+        line_h = max(1, int(round(size * line_height_mult)))
         all_fit_w = all(draw.textlength(ln, font=font) <= max_w for ln in lines)
         if len(lines) <= max_lines and line_h * len(lines) <= max_h and all_fit_w:
             return font, lines, line_h, {
@@ -413,7 +436,7 @@ def fit_text(draw, text, max_w, max_h, font_path, max_lines, start_size=44, min_
 
     font = ImageFont.truetype(font_path, min_size)
     raw_lines = _wrap_all_paragraphs(draw, text, font, max_w, max_lines)
-    line_h = max(1, int(round(min_size * 1.45)))
+    line_h = max(1, int(round(min_size * line_height_mult)))
     cap = max(1, min(max_lines, max(1, max_h // line_h)))
     overflow = len(raw_lines) > cap or any(draw.textlength(ln, font=font) > max_w for ln in raw_lines[:cap])
     return font, raw_lines[:cap], line_h, {
@@ -451,55 +474,110 @@ def save_image(im, out_path, fmt="keep", quality=92):
     return target
 
 
-def _draw_extend_band(w, h, band_h, band_color, im):
+def _divider_color(band_color):
+    r, g, b = band_color
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    if lum < 128:
+        return (min(255, r + 36), min(255, g + 36), min(255, b + 42))
+    return (max(0, r - 36), max(0, g - 36), max(0, b - 42))
+
+
+def _draw_extend_band(w, h, band_h, band_color, im, position="bottom"):
     canvas = Image.new("RGB", (w, h + band_h), band_color)
-    canvas.paste(im, (0, 0))
     border_h = max(1, w // 600)
     d = ImageDraw.Draw(canvas)
-    d.rectangle([0, h, w - 1, h + border_h - 1], fill=(48, 48, 56))
-    return canvas
+    div_col = _divider_color(band_color)
+    if position == "top":
+        canvas.paste(im, (0, band_h))
+        d.rectangle([0, band_h - border_h, w - 1, band_h - 1], fill=div_col)
+        return canvas, 0
+    canvas.paste(im, (0, 0))
+    d.rectangle([0, h, w - 1, h + border_h - 1], fill=div_col)
+    return canvas, h
 
 
-def _build_overlay_canvas(im, w, h, band_h, band_color, overlay_opacity):
-    top = h - band_h
-    fade_h = min(top, int(round(band_h * 0.30)))
-    target_alpha = max(0, min(255, int(round(255 * overlay_opacity))))
+def _build_overlay_canvas(
+    im,
+    w,
+    h,
+    band_h,
+    band_color,
+    overlay_opacity,
+    overlay_fade=0.30,
+    overlay_margin=0.0,
+    position="bottom",
+):
+    band_h = min(h, max(1, band_h))
+    margin_px = min(max(0, h - band_h), max(0, int(round(h * max(0.0, float(overlay_margin))))))
+    fade_ratio = max(0.0, min(0.60, float(overlay_fade)))
+    opacity = max(0.0, min(1.0, float(overlay_opacity)))
+    target_alpha = int(round(255 * opacity))
 
-    strip_h = fade_h + band_h
+    if position == "top":
+        top = margin_px
+        bottom = top + band_h
+        fade_top = min(top, int(round(band_h * fade_ratio * 0.5))) if margin_px > 0 else 0
+        fade_bot = min(h - bottom, int(round(band_h * fade_ratio)))
+    else:
+        bottom = h - margin_px
+        top = bottom - band_h
+        fade_top = min(top, int(round(band_h * fade_ratio)))
+        fade_bot = min(h - bottom, int(round(band_h * fade_ratio * 0.5))) if margin_px > 0 else 0
+
+    if target_alpha == 0:
+        return im.convert("RGBA"), top
+
+    strip_h = fade_top + band_h + fade_bot
     grad = Image.new("RGBA", (1, strip_h), (0, 0, 0, 0))
     gpix = grad.load()
-    for row in range(fade_h):
-        t = (row + 1) / max(1, fade_h)
-        alpha = int(round(target_alpha * (t * t)))
-        gpix[0, row] = (*band_color, alpha)
-    for row in range(fade_h, strip_h):
+    for row in range(fade_top):
+        t = (row + 1) / (fade_top + 1)
+        gpix[0, row] = (*band_color, int(round(target_alpha * (t * t))))
+    for row in range(fade_top, fade_top + band_h):
         gpix[0, row] = (*band_color, target_alpha)
+    for k in range(fade_bot):
+        t = (fade_bot - k) / (fade_bot + 1)
+        gpix[0, fade_top + band_h + k] = (*band_color, int(round(target_alpha * (t * t))))
 
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     stretched = grad.resize((w, strip_h), Image.Resampling.NEAREST)
-    overlay.paste(stretched, (0, top - fade_h))
-    return Image.alpha_composite(im.convert("RGBA"), overlay)
+    overlay.paste(stretched, (0, top - fade_top))
+    return Image.alpha_composite(im.convert("RGBA"), overlay), top
 
 
-def process_blank_band(img_path, out_path, cfg):
-    """Append an empty band (extend mode) to match dialogue-page aspect ratio."""
+def render_blank_band(img_path, cfg):
+    """Render an empty band (extend mode) onto `img_path` and return the PIL Image."""
     band_color = cfg["band_color"]
     im = _load_rgb_image(img_path, band_color)
     w, h = im.size
     band_h = max(1, int(round(w * cfg["band"])))
-    canvas = _draw_extend_band(w, h, band_h, band_color, im)
+    canvas, _ = _draw_extend_band(w, h, band_h, band_color, im, position=cfg.get("position", "bottom"))
+    return canvas
+
+
+def process_blank_band(img_path, out_path, cfg):
+    """Append an empty band (extend mode) to match dialogue-page aspect ratio."""
+    canvas = render_blank_band(img_path, cfg)
     return save_image(canvas, out_path, fmt=cfg["format"], quality=cfg["quality"])
 
 
 def _compute_layout(w, h, speaker, text, cfg, draw):
     band_h = max(1, int(round(w * cfg["band"])))
-    scale = cfg["font_scale"]
-    pad = max(8, int(round(w * 0.045)))
+    if cfg.get("mode") == "overlay":
+        band_h = min(h, band_h)
+    scale = float(cfg.get("font_scale", 1.0))
+    pad_x = max(0.01, min(0.35, float(cfg.get("pad_x", 0.045))))
+    pad = max(4, min(max(4, (w - 20) // 2), int(round(w * pad_x))))
     v_pad = max(4, int(round(band_h * 0.10)))
     name_size = max(12, int(round(w * 0.036 * scale)))
-    start_size = max(14, int(round(w * 0.053 * scale)))
     min_size = max(10, int(round(w * 0.024 * scale)))
+    uniform_ratio = cfg.get("uniform_font_ratio")
+    if uniform_ratio is not None:
+        start_size = max(min_size, int(w * float(uniform_ratio) + 1e-6))
+    else:
+        start_size = max(14, int(round(w * 0.053 * scale)))
     step = max(1, int(round(w * 0.0024)))
+    line_h_mult = max(1.0, float(cfg.get("line_height", 1.45)))
 
     name_block_h = 0
     f_name = None
@@ -525,6 +603,7 @@ def _compute_layout(w, h, speaker, text, cfg, draw):
         start_size=start_size,
         min_size=min_size,
         step=step,
+        line_height_mult=line_h_mult,
     )
     return {
         "band_h": band_h,
@@ -543,6 +622,34 @@ def _compute_layout(w, h, speaker, text, cfg, draw):
     }
 
 
+def compute_uniform_font_ratio(image_paths, script, cfg):
+    """Scan dialogue images and return `(min_ratio, bottleneck_info)` for uniform font sizing."""
+    scan_cfg = dict(cfg)
+    scan_cfg["uniform_font_ratio"] = None
+    dummy = Image.new("RGB", (1, 1))
+    draw = ImageDraw.Draw(dummy)
+
+    min_ratio = None
+    bottleneck = None
+    for p in image_paths:
+        key = key_of(Path(p).name)
+        if key not in script:
+            continue
+        sp, tx = script[key]
+        if not tx:
+            continue
+        with Image.open(p) as raw:
+            im = ImageOps.exif_transpose(raw)
+            w, h = im.size
+        layout = _compute_layout(w, h, sp, tx, scan_cfg, draw)
+        sz = layout["fit_meta"]["size"]
+        ratio = sz / max(1, w)
+        if min_ratio is None or ratio < min_ratio:
+            min_ratio = ratio
+            bottleneck = {"key": key, "filename": Path(p).name, "size": sz, "width": w}
+    return min_ratio, bottleneck
+
+
 def check_layout_only(img_path, speaker, text, cfg):
     """Compute text layout for dry-run verification without saving files."""
     with Image.open(img_path) as raw:
@@ -554,27 +661,35 @@ def check_layout_only(img_path, speaker, text, cfg):
     return layout["fit_meta"]
 
 
-def process(img_path, speaker, text, out_path, cfg):
-    """Render a dialogue band onto `img_path` and write the output image."""
+def render_image(img_path, speaker, text, cfg):
+    """Render a dialogue band onto `img_path` and return `(canvas, fit_meta)`."""
     band_color = cfg["band_color"]
     im = _load_rgb_image(img_path, band_color)
     w, h = im.size
+    position = cfg.get("position", "bottom")
 
     if cfg["mode"] == "extend":
         band_h = max(1, int(round(w * cfg["band"])))
-        canvas = _draw_extend_band(w, h, band_h, band_color, im)
-        top = h
+        canvas, top = _draw_extend_band(w, h, band_h, band_color, im, position=position)
         draw_target = ImageDraw.Draw(canvas)
     else:
-        band_h = max(1, int(round(w * cfg["band"])))
-        base = _build_overlay_canvas(im, w, h, band_h, band_color, cfg["overlay_opacity"])
-        top = h - band_h
+        band_h = min(h, max(1, int(round(w * cfg["band"]))))
+        base, top = _build_overlay_canvas(
+            im,
+            w,
+            h,
+            band_h,
+            band_color,
+            cfg["overlay_opacity"],
+            overlay_fade=cfg.get("overlay_fade", 0.30),
+            overlay_margin=cfg.get("overlay_margin", 0.0),
+            position=position,
+        )
         txt_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         draw_target = ImageDraw.Draw(txt_layer)
 
     layout = _compute_layout(w, h, speaker, text, cfg, draw_target)
     pad = layout["pad"]
-    v_pad = layout["v_pad"]
     font = layout["font"]
     lines = layout["lines"]
     line_h = layout["line_h"]
@@ -583,49 +698,127 @@ def process(img_path, speaker, text, out_path, cfg):
     ref_b = draw_target.textbbox((0, 0), "\u3042\u6f22g", font=font)
     glyph_h = max(1, ref_b[3] - ref_b[1])
     total_block_h = layout["name_block_h"] + max(0, len(lines) - 1) * line_h + glyph_h
-    block_top = top + max(v_pad, (band_h - total_block_h) // 2)
+
+    centered_top = top + (band_h - total_block_h) // 2
+    offset_px = int(round(band_h * float(cfg.get("text_offset_y", 0.0))))
+    min_top = top + 2
+    max_top = max(min_top, top + band_h - total_block_h - 2)
+    block_top = max(min_top, min(max_top, centered_top + offset_px))
 
     is_overlay = cfg["mode"] == "overlay"
     shadow_color = (0, 0, 0, 190)
+    align = cfg.get("align", "left")
+    text_area_w = max(1, w - pad * 2)
+
+    outline_lvl = max(0, int(cfg.get("text_outline", 0)))
+    body_stroke = max(1, int(round(outline_lvl * w / 832.0))) if outline_lvl > 0 else 0
+    name_stroke = max(1, int(round(outline_lvl * 0.75 * w / 832.0))) if outline_lvl > 0 else 0
 
     if speaker:
         accent_w = max(3, w // 220)
         accent_gap = max(6, int(round(layout["name_size"] * 0.3)))
         speaker_color = cfg["colors"].get(speaker, MAIN_SPEAKER_COLOR)
-        bar_box = [pad, block_top, pad + accent_w - 1, block_top + layout["name_h"]]
-        name_x = pad + accent_w + accent_gap
+        sp_w = draw_target.textlength(speaker, font=layout["f_name"])
+        total_sp_w = accent_w + accent_gap + sp_w
+        if align == "center":
+            bar_x = int(round(pad + (text_area_w - total_sp_w) / 2))
+        elif align == "right":
+            bar_x = int(round(pad + text_area_w - total_sp_w))
+        else:
+            bar_x = pad
+
+        bar_box = [bar_x, block_top, bar_x + accent_w - 1, block_top + layout["name_h"]]
+        name_x = bar_x + accent_w + accent_gap
         name_y = block_top - layout["nb"][1]
+        sp_outline = _outline_rgb(speaker_color)
         if is_overlay:
             s_off = max(1, layout["name_size"] // 22)
             draw_target.rectangle(
                 [bar_box[0] + s_off, bar_box[1] + s_off, bar_box[2] + s_off, bar_box[3] + s_off],
                 fill=shadow_color,
             )
-            draw_target.text((name_x + s_off, name_y + s_off), speaker, font=layout["f_name"], fill=shadow_color)
+            draw_target.text(
+                (name_x + s_off, name_y + s_off),
+                speaker,
+                font=layout["f_name"],
+                fill=shadow_color,
+                stroke_width=name_stroke,
+                stroke_fill=shadow_color,
+            )
             draw_target.rectangle(bar_box, fill=(*speaker_color, 255))
-            draw_target.text((name_x, name_y), speaker, font=layout["f_name"], fill=(*speaker_color, 255))
+            draw_target.text(
+                (name_x, name_y),
+                speaker,
+                font=layout["f_name"],
+                fill=(*speaker_color, 255),
+                stroke_width=name_stroke,
+                stroke_fill=(*sp_outline, 255) if name_stroke > 0 else None,
+            )
         else:
             draw_target.rectangle(bar_box, fill=speaker_color)
-            draw_target.text((name_x, name_y), speaker, font=layout["f_name"], fill=speaker_color)
+            draw_target.text(
+                (name_x, name_y),
+                speaker,
+                font=layout["f_name"],
+                fill=speaker_color,
+                stroke_width=name_stroke,
+                stroke_fill=sp_outline if name_stroke > 0 else None,
+            )
         body_y = block_top + layout["name_h"] + layout["name_gap"] - ref_b[1]
     else:
         body_y = block_top - ref_b[1]
 
     body_rgb = cfg["text_color"] if speaker else cfg["narration_color"]
+    body_outline = _outline_rgb(body_rgb)
     b_off = max(1, body_size // 22)
     for ln in lines:
-        if is_overlay:
-            draw_target.text((pad + b_off, body_y + b_off), ln, font=font, fill=shadow_color)
-            draw_target.text((pad, body_y), ln, font=font, fill=(*body_rgb, 255))
+        ln_w = draw_target.textlength(ln, font=font)
+        if align == "center":
+            ln_x = pad + (text_area_w - ln_w) / 2
+        elif align == "right":
+            ln_x = pad + (text_area_w - ln_w)
         else:
-            draw_target.text((pad, body_y), ln, font=font, fill=body_rgb)
+            ln_x = pad
+
+        if is_overlay:
+            draw_target.text(
+                (ln_x + b_off, body_y + b_off),
+                ln,
+                font=font,
+                fill=shadow_color,
+                stroke_width=body_stroke,
+                stroke_fill=shadow_color,
+            )
+            draw_target.text(
+                (ln_x, body_y),
+                ln,
+                font=font,
+                fill=(*body_rgb, 255),
+                stroke_width=body_stroke,
+                stroke_fill=(*body_outline, 255) if body_stroke > 0 else None,
+            )
+        else:
+            draw_target.text(
+                (ln_x, body_y),
+                ln,
+                font=font,
+                fill=body_rgb,
+                stroke_width=body_stroke,
+                stroke_fill=body_outline if body_stroke > 0 else None,
+            )
         body_y += line_h
 
     if is_overlay:
         canvas = Image.alpha_composite(base, txt_layer).convert("RGB")
 
+    return canvas, layout["fit_meta"]
+
+
+def process(img_path, speaker, text, out_path, cfg):
+    """Render a dialogue band onto `img_path` and write the output image."""
+    canvas, fit_meta = render_image(img_path, speaker, text, cfg)
     saved = save_image(canvas, out_path, fmt=cfg["format"], quality=cfg["quality"])
-    return layout["fit_meta"], saved
+    return fit_meta, saved
 
 
 def load_script(path):
@@ -701,12 +894,24 @@ def build_cfg(args, file_cfg):
         "max_lines": int(pick_opt(args.max_lines, "max_lines", 2)),
         "font_scale": float(pick_opt(args.font_scale, "font_scale", 1.0)),
         "uniform_height": bool(args.uniform_height or file_cfg.get("uniform_height", False)),
+        "uniform_font": bool(args.uniform_font or file_cfg.get("uniform_font", False)),
+        "uniform_font_ratio": None,
         "format": str(pick_opt(args.format, "format", "keep")).lower(),
         "quality": int(pick_opt(args.quality, "quality", 92)),
-        "band_color": parse_color(file_cfg.get("band_color"), DEFAULT_BAND_COLOR),
-        "text_color": parse_color(file_cfg.get("text_color"), DEFAULT_TEXT_COLOR),
-        "narration_color": parse_color(file_cfg.get("narration_color"), DEFAULT_NARRATION_COLOR),
-        "overlay_opacity": float(file_cfg.get("overlay_opacity", 0.76)),
+        "band_color": parse_color(pick_opt(args.band_color, "band_color", None), DEFAULT_BAND_COLOR),
+        "text_color": parse_color(pick_opt(args.text_color, "text_color", None), DEFAULT_TEXT_COLOR),
+        "narration_color": parse_color(
+            pick_opt(args.narration_color, "narration_color", None), DEFAULT_NARRATION_COLOR
+        ),
+        "overlay_opacity": float(pick_opt(args.overlay_opacity, "overlay_opacity", 0.76)),
+        "overlay_fade": float(pick_opt(args.overlay_fade, "overlay_fade", 0.30)),
+        "overlay_margin": float(pick_opt(args.overlay_margin, "overlay_margin", 0.0)),
+        "text_outline": int(pick_opt(args.text_outline, "text_outline", 0)),
+        "position": str(pick_opt(args.position, "position", "bottom")).lower(),
+        "align": str(pick_opt(args.align, "align", "left")).lower(),
+        "text_offset_y": float(pick_opt(args.text_offset_y, "text_offset_y", 0.0)),
+        "pad_x": float(pick_opt(args.pad_x, "pad_x", 0.045)),
+        "line_height": float(pick_opt(args.line_height, "line_height", 1.45)),
         "auto_speaker_colors": bool(args.speaker_colors or file_cfg.get("auto_speaker_colors", False)),
         "colors": colors,
         **fonts,
@@ -714,7 +919,7 @@ def build_cfg(args, file_cfg):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.1")
+    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.2")
     ap.add_argument("src")
     ap.add_argument("script")
     ap.add_argument("out")
@@ -728,6 +933,19 @@ def main(argv=None):
     ap.add_argument("--speaker-colors", action="store_true")
     ap.add_argument("--config", default=None)
     ap.add_argument("--uniform-height", action="store_true")
+    ap.add_argument("--uniform-font", action="store_true")
+    ap.add_argument("--position", choices=["bottom", "top"], default=None)
+    ap.add_argument("--align", choices=["left", "center", "right"], default=None)
+    ap.add_argument("--text-offset-y", type=float, default=None)
+    ap.add_argument("--pad-x", type=float, default=None)
+    ap.add_argument("--line-height", type=float, default=None)
+    ap.add_argument("--overlay-opacity", type=float, default=None)
+    ap.add_argument("--overlay-fade", type=float, default=None)
+    ap.add_argument("--overlay-margin", type=float, default=None)
+    ap.add_argument("--text-outline", type=int, choices=[0, 1, 2, 3, 4], default=None)
+    ap.add_argument("--band-color", default=None)
+    ap.add_argument("--text-color", default=None)
+    ap.add_argument("--narration-color", default=None)
     ap.add_argument("--format", choices=["keep", "png", "jpg", "jpeg", "webp"], default=None)
     ap.add_argument("--quality", type=int, default=None)
     ap.add_argument("--dry-run", action="store_true")
@@ -759,18 +977,31 @@ def main(argv=None):
     if not a.dry_run:
         out.mkdir(parents=True, exist_ok=True)
 
+    target_files = [
+        p
+        for p in sorted(src.iterdir())
+        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS
+    ]
+    if only_keys is not None:
+        target_files = [p for p in target_files if key_of(p.name) in only_keys]
+
+    if cfg["uniform_font"]:
+        min_ratio, bottleneck = compute_uniform_font_ratio(target_files, script, cfg)
+        cfg["uniform_font_ratio"] = min_ratio
+        if bottleneck:
+            print(
+                f"info: uniform-font active: {bottleneck['size']}px "
+                f"(bottleneck: {bottleneck['filename']})"
+            )
+
     n_text = 0
     n_copy = 0
     used = set()
     shrunk_keys = []
     overflow_keys = []
 
-    for p in sorted(src.iterdir()):
-        if not p.is_file() or p.suffix.lower() not in SUPPORTED_EXTS:
-            continue
+    for p in target_files:
         key = key_of(p.name)
-        if only_keys is not None and key not in only_keys:
-            continue
 
         if key in script:
             used.add(key)

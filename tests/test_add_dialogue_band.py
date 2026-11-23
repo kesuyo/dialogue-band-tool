@@ -218,6 +218,235 @@ class TestEndToEndRendering(unittest.TestCase):
             rc_strict = adb.main([str(src), str(csv_path), str(out), "--strict"])
             self.assertNotEqual(rc_strict, 0)
 
+    def test_render_image_and_blank_band(self):
+        sample_img = ROOT / "sample_input" / "001_sample.png"
+        cfg = {
+            "mode": "extend",
+            "band": 0.24,
+            "max_lines": 2,
+            "font_scale": 1.0,
+            "uniform_height": False,
+            "format": "keep",
+            "quality": 92,
+            "band_color": adb.DEFAULT_BAND_COLOR,
+            "text_color": adb.DEFAULT_TEXT_COLOR,
+            "narration_color": adb.DEFAULT_NARRATION_COLOR,
+            "overlay_opacity": 0.76,
+            "auto_speaker_colors": False,
+            "colors": {"彼女": (255, 158, 199)},
+            **adb.resolve_fonts(),
+        }
+        rendered, meta = adb.render_image(sample_img, "彼女", "テストセリフ", cfg)
+        self.assertFalse(meta["overflow"])
+        self.assertEqual(rendered.size, (832, 1216 + int(round(832 * 0.24))))
+
+        blank = adb.render_blank_band(sample_img, cfg)
+        self.assertEqual(blank.size, rendered.size)
+
+    def test_uniform_font_two_pass_and_cli(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "src"
+            out = root / "out"
+            src.mkdir()
+            p1 = src / "001_short.png"
+            p2 = src / "002_long.png"
+            Image.new("RGB", (800, 1000), (60, 80, 120)).save(p1)
+            Image.new("RGB", (800, 1000), (60, 80, 120)).save(p2)
+            csv_path = root / "script.csv"
+            short_tx = "短いセリフ"
+            long_tx = "これは文字サイズ統一機能を検証するための少し長めのセリフです。全ページ同じ大きさになります。"
+            csv_path.write_text(f"001,彼女,{short_tx}\n002,彼女,{long_tx}\n", encoding="utf-8")
+
+            script, _ = adb.load_script(csv_path)
+            cfg = {
+                "mode": "extend",
+                "position": "bottom",
+                "band": 0.24,
+                "max_lines": 2,
+                "font_scale": 1.0,
+                "uniform_font": True,
+                "uniform_font_ratio": None,
+                "uniform_height": False,
+                "align": "left",
+                "text_offset_y": 0.0,
+                "pad_x": 0.045,
+                "line_height": 1.45,
+                "format": "keep",
+                "quality": 92,
+                "band_color": adb.DEFAULT_BAND_COLOR,
+                "text_color": adb.DEFAULT_TEXT_COLOR,
+                "narration_color": adb.DEFAULT_NARRATION_COLOR,
+                "overlay_opacity": 0.76,
+                "overlay_fade": 0.30,
+                "overlay_margin": 0.0,
+                "text_outline": 0,
+                "auto_speaker_colors": False,
+                "colors": {},
+                **adb.resolve_fonts(),
+            }
+            min_ratio, bottleneck = adb.compute_uniform_font_ratio([p1, p2], script, cfg)
+            self.assertIsNotNone(min_ratio)
+            self.assertEqual(bottleneck["filename"], "002_long.png")
+            cfg["uniform_font_ratio"] = min_ratio
+
+            _, meta1 = adb.render_image(p1, "彼女", short_tx, cfg)
+            _, meta2 = adb.render_image(p2, "彼女", long_tx, cfg)
+            self.assertEqual(meta1["size"], meta2["size"])
+
+            rc = adb.main([str(src), str(csv_path), str(out), "--uniform-font"])
+            self.assertEqual(rc, 0)
+            self.assertTrue((out / "001_short.png").exists())
+            self.assertTrue((out / "002_long.png").exists())
+
+    def test_position_align_overlay_and_cli_options(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "src"
+            out = root / "out"
+            src.mkdir()
+            p1 = src / "001_test.png"
+            # Distinct top/bottom halves so top vs bottom placement is verifiable
+            im = Image.new("RGB", (800, 1000), (200, 210, 220))
+            for y in range(500, 1000):
+                for x in range(800):
+                    im.putpixel((x, y), (40, 60, 90))
+            im.save(p1)
+            csv_path = root / "script.csv"
+            csv_path.write_text("001,彼女,上配置と中央揃えのテスト\n", encoding="utf-8")
+
+            # Top extend band: top pixels match band_color, bottom keeps artwork
+            cfg = {
+                "mode": "extend",
+                "position": "top",
+                "band": 0.24,
+                "max_lines": 2,
+                "font_scale": 1.0,
+                "uniform_font_ratio": None,
+                "align": "center",
+                "text_offset_y": -0.20,
+                "pad_x": 0.12,
+                "line_height": 1.70,
+                "format": "keep",
+                "quality": 92,
+                "band_color": (240, 240, 244),
+                "text_color": (20, 20, 24),
+                "narration_color": (30, 30, 40),
+                "overlay_opacity": 0.0,
+                "overlay_fade": 0.40,
+                "overlay_margin": 0.05,
+                "text_outline": 2,
+                "colors": {"彼女": (210, 40, 110)},
+                **adb.resolve_fonts(),
+            }
+            top_ext, _ = adb.render_image(p1, "彼女", "上配置のテスト", cfg)
+            self.assertEqual(top_ext.size, (800, 1192))
+            self.assertEqual(top_ext.getpixel((5, 5)), (240, 240, 244))
+            self.assertEqual(top_ext.getpixel((5, 1190)), (40, 60, 90))
+
+            blank_top = adb.render_blank_band(p1, cfg)
+            self.assertEqual(blank_top.size, (800, 1192))
+            self.assertEqual(blank_top.getpixel((5, 5)), (240, 240, 244))
+
+            # Overlay with 0.0 opacity leaves untouched pixels identical
+            cfg["mode"] = "overlay"
+            ov_zero, _ = adb.render_image(p1, "", "ナレーション", cfg)
+            self.assertEqual(ov_zero.size, (800, 1000))
+            self.assertEqual(ov_zero.getpixel((10, 950)), (40, 60, 90))
+
+            # CLI flags end-to-end
+            rc = adb.main(
+                [
+                    str(src),
+                    str(csv_path),
+                    str(out),
+                    "--mode",
+                    "overlay",
+                    "--position",
+                    "top",
+                    "--align",
+                    "right",
+                    "--text-offset-y",
+                    "0.15",
+                    "--pad-x",
+                    "0.08",
+                    "--line-height",
+                    "1.6",
+                    "--overlay-opacity",
+                    "0.5",
+                    "--overlay-fade",
+                    "0.4",
+                    "--overlay-margin",
+                    "0.04",
+                    "--text-outline",
+                    "2",
+                    "--band-color",
+                    "#10141C",
+                    "--text-color",
+                    "#FFFFFF",
+                    "--narration-color",
+                    "#DDE6FF",
+                ]
+            )
+            self.assertEqual(rc, 0)
+            self.assertTrue((out / "001_test.png").exists())
+
+
+class TestGuiApp(unittest.TestCase):
+    def test_gui_app_preview_and_config(self):
+        import tkinter as tk
+        import gui
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = gui.DialogueBandApp(root)
+            sample_cfg = ROOT / "sample_config.json"
+            self.assertTrue(app.load_config_file(str(sample_cfg), silent=True))
+
+            sample_img = ROOT / "sample_input" / "001_sample.png"
+            app.mode_var.set("extend")
+            im_ext, info_ext = app.render_preview_pil(sample_img)
+            self.assertGreater(im_ext.height, 1216)
+            self.assertIn("彼女", info_ext)
+
+            app.mode_var.set("overlay")
+            im_ov, info_ov = app.render_preview_pil(sample_img)
+            self.assertEqual(im_ov.size, (832, 1216))
+            self.assertIn("832x1216", info_ov)
+
+            # v1.2 controls & config roundtrip
+            app.uniform_font_var.set(True)
+            app.position_var.set("top")
+            app.align_var.set("center")
+            app.overlay_opacity_var.set(50.0)
+            app.overlay_fade_var.set(45.0)
+            app.overlay_margin_var.set(3.0)
+            app.text_offset_y_var.set(-15.0)
+            app.pad_x_var.set(8.0)
+            app.line_height_var.set(1.6)
+            app.text_outline_var.set("2")
+
+            im_v12, info_v12 = app.render_preview_pil(sample_img)
+            self.assertEqual(im_v12.size, (832, 1216))
+            self.assertIn("統一:", info_v12)
+
+            with tempfile.TemporaryDirectory() as td:
+                cfg_out = Path(td) / "saved.json"
+                saved_dict = app._collect_config_dict()
+                cfg_out.write_text(json.dumps(saved_dict, ensure_ascii=False, indent=2), encoding="utf-8")
+
+                app.reset_style_defaults()
+                self.assertEqual(app.position_var.get(), "bottom")
+                self.assertTrue(app.load_config_file(str(cfg_out), silent=True))
+                self.assertTrue(app.uniform_font_var.get())
+                self.assertEqual(app.position_var.get(), "top")
+                self.assertEqual(app.align_var.get(), "center")
+                self.assertAlmostEqual(app.overlay_opacity_var.get(), 50.0, places=1)
+                self.assertEqual(app.text_outline_var.get(), "2")
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
