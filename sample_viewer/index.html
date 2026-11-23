@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>帯テキスト見本</title>
+<style>
+  :root {
+    --img-w: 832px;
+    --font-px: 18px;
+    --speaker-gap: 0.5;
+    --line-height: 1.45;
+    --pad-x: 0.045;
+    --band-bg: linear-gradient(to bottom, rgba(12,12,14,0) 0%, rgba(12,12,14,0.76) 30%, rgba(12,12,14,0.76) 100%);
+    --band-bg-solid: rgb(12,12,14);
+    --text-color: #FFFFFF;
+    --narration-color: #EAEDF5;
+    --extend-reserve: 0px;
+    --overlay-margin: 0px;
+    --fade-pad: 20px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #09090b;
+    color: #f4f4f7;
+    font-family: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+    overflow: hidden;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Auto-hiding Top Control Bar */
+  .topbar {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%) translateY(-14px);
+    z-index: 40;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(16, 17, 22, 0.84);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 22px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    max-width: calc(100vw - 16px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+  .tb-nav, .tb-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tb-close-btn { display: none; }
+  body.topbar-visible:not(.dialogue-hidden):not(.modal-open) .topbar {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+  }
+  body.topbar-pinned .tb-close-btn { display: none; }
+
+  .menu-toggle-btn {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    right: 12px;
+    z-index: 39;
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(16, 17, 22, 0.52);
+    backdrop-filter: blur(6px);
+    color: #f2f3f7;
+    border-radius: 999px;
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0.48;
+    transition: opacity 0.18s ease, background 0.18s ease;
+  }
+  .menu-toggle-btn:hover { opacity: 1; background: rgba(16, 17, 22, 0.88); }
+  body.topbar-visible .menu-toggle-btn,
+  body.dialogue-hidden .menu-toggle-btn,
+  body.modal-open .menu-toggle-btn {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  @media (max-width: 760px) {
+    .topbar {
+      top: max(8px, env(safe-area-inset-top));
+      width: min(368px, calc(100vw - 16px));
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      padding: 8px;
+      border-radius: 14px;
+    }
+    .tb-main-sep { display: none; }
+    .tb-nav { width: 100%; gap: 5px; }
+    .tb-title { flex: 1; min-width: 0; max-width: none; padding: 0 2px; }
+    .tb-page { min-width: 46px; }
+    .tb-close-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: auto;
+      padding: 4px 9px;
+      font-size: 13px;
+    }
+    .tb-actions {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 5px;
+      width: 100%;
+    }
+    .tb-actions.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tb-actions .tb-btn {
+      padding: 6px 4px;
+      font-size: 11.5px;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .menu-toggle-btn {
+      top: max(10px, env(safe-area-inset-top));
+      right: 10px;
+      width: 38px;
+      height: 38px;
+      font-size: 18px;
+      opacity: 0.72;
+    }
+  }
+
+  .tb-title {
+    font-size: 12px;
+    color: #c9cdd8;
+    padding: 0 6px;
+    white-space: nowrap;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tb-sep {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.14);
+    flex-shrink: 0;
+  }
+  .tb-btn {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f2f3f7;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .tb-btn:hover { background: rgba(255, 255, 255, 0.16); }
+  .tb-btn.active {
+    background: rgba(255, 158, 199, 0.24);
+    border-color: rgba(255, 158, 199, 0.72);
+    color: #ffd9e9;
+  }
+  .tb-btn:disabled { opacity: 0.35; cursor: default; }
+  .tb-page {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: #e4e6ef;
+    min-width: 56px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* Restore dialogue button when hidden */
+  .restore-btn {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 45;
+    display: none;
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(16, 17, 22, 0.55);
+    backdrop-filter: blur(6px);
+    color: #f4f4f7;
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.18s ease, background 0.18s ease;
+  }
+  .restore-btn:hover { opacity: 1; background: rgba(16, 17, 22, 0.88); }
+  body.dialogue-hidden .restore-btn { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* Bottom thin progress line */
+  .progress-track {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    z-index: 35;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #ff9ec7, #96c8ff);
+    transition: width 0.2s ease;
+  }
+  body.dialogue-hidden .progress-track { opacity: 0.25; }
+
+  /* Main stage */
+  .stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .stage-frame {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    max-width: 100vw;
+    max-height: 100vh;
+    max-height: 100dvh;
+  }
+  .stage-frame.mode-extend.pos-top {
+    flex-direction: column-reverse;
+  }
+
+  .main-img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100vw;
+    max-height: 100vh;
+    max-height: 100dvh;
+    object-fit: contain;
+    box-shadow: 0 12px 44px rgba(0, 0, 0, 0.65);
+  }
+  .stage-frame.mode-extend .main-img {
+    max-height: calc(100vh - var(--extend-reserve));
+    max-height: calc(100dvh - var(--extend-reserve));
+  }
+
+  /* Dialogue Band (always left-aligned; speaker font size matches body text size) */
+  .band {
+    z-index: 15;
+    width: 100%;
+    color: var(--text-color);
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+  }
+  body.dialogue-hidden .band,
+  .band.empty-cg {
+    display: none;
+  }
+  .stage-frame.mode-overlay .band {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: var(--band-bg);
+  }
+  .stage-frame.mode-overlay.pos-bottom .band {
+    bottom: var(--overlay-margin);
+    padding-top: var(--fade-pad);
+  }
+  .stage-frame.mode-overlay.pos-top .band {
+    top: var(--overlay-margin);
+    padding-bottom: var(--fade-pad);
+  }
+  .stage-frame.mode-extend .band {
+    position: relative;
+    background: var(--band-bg-solid);
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+  }
+  .stage-frame.mode-extend.pos-top .band {
+    border-top: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  }
+
+  .band-inner {
+    padding:
+      clamp(10px, calc(var(--img-w) * 0.022), 24px)
+      calc(var(--img-w) * var(--pad-x))
+      calc(clamp(12px, calc(var(--img-w) * 0.026), 28px) + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .speaker-wrap {
+    margin-bottom: calc(1em * var(--speaker-gap));
+    font-size: var(--font-px);
+    font-weight: 700;
+    line-height: 1.25;
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+  }
+  .speaker-wrap.style-plate {
+    background: rgba(14, 15, 20, 0.84);
+    border: 1px solid var(--sp-border, rgba(255, 158, 199, 0.72));
+    border-radius: 7px;
+    padding: 0.22em 0.68em 0.22em 0.46em;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+    gap: 0.36em;
+  }
+  .speaker-wrap.style-bar {
+    gap: 0.38em;
+  }
+  .speaker-accent {
+    display: inline-block;
+    width: 4px;
+    height: 1.05em;
+    border-radius: 2px;
+    background: var(--sp-color, #ff9ec7);
+    flex-shrink: 0;
+  }
+  .speaker-wrap.style-bracket .speaker-accent,
+  .speaker-wrap.style-plain .speaker-accent {
+    display: none;
+  }
+  .speaker-name {
+    color: var(--sp-color, #ff9ec7);
+  }
+
+  .dialogue-text {
+    font-size: var(--font-px);
+    line-height: var(--line-height);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 100%;
+    color: var(--text-color);
+    user-select: text;
+  }
+  .band.is-narration .dialogue-text {
+    font-family: "BIZ UDPMincho", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
+    color: var(--narration-color);
+  }
+
+  .next-caret {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.72em;
+    opacity: 0.85;
+    animation: caretPulse 1.1s ease-in-out infinite;
+  }
+  @keyframes caretPulse {
+    0%, 100% { transform: translateY(0); opacity: 0.85; }
+    50% { transform: translateY(2px); opacity: 0.35; }
+  }
+
+  /* Modals */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(5, 6, 10, 0.72);
+    backdrop-filter: blur(6px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+  }
+  .modal-backdrop.open { display: flex; }
+
+  .modal {
+    width: min(760px, 100%);
+    max-height: min(86vh, 780px);
+    background: #14151c;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 14px;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.65);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .modal.wide { width: min(980px, 100%); }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .modal-title { font-size: 15px; font-weight: 700; }
+  .modal-close {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    border-radius: 8px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .modal-close:hover { background: rgba(255, 255, 255, 0.16); }
+  .modal-body {
+    padding: 14px 16px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  /* Backlog */
+  .log-list { display: flex; flex-direction: column; gap: 10px; }
+  .log-item {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease;
+  }
+  .log-item:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.22); }
+  .log-item.current { border-color: rgba(255, 158, 199, 0.65); background: rgba(255, 158, 199, 0.09); }
+  .log-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 4px; }
+  .log-num { color: #8c92a4; font-variant-numeric: tabular-nums; }
+  .log-sp { font-weight: 700; }
+  .log-txt { font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: #eceef4; }
+
+  /* Thumbnails */
+  .thumb-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .thumb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+    gap: 10px;
+  }
+  .thumb-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  .thumb-card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.35); }
+  .thumb-card.current { border-color: #ff9ec7; box-shadow: 0 0 0 1px #ff9ec7; }
+  .thumb-img-wrap {
+    aspect-ratio: 3 / 4;
+    background: #0c0d11;
+    position: relative;
+    overflow: hidden;
+  }
+  .thumb-img-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .thumb-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: rgba(10, 11, 16, 0.78);
+    color: #f3f4f8;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 999px;
+  }
+  .thumb-cap {
+    padding: 7px 8px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .thumb-sp { font-weight: 700; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thumb-snip {
+    color: #c7cbd8;
+    font-size: 11px;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Forms inside Name & Settings modals */
+  .form-grid { display: flex; flex-direction: column; gap: 12px; }
+  .form-row {
+    display: grid;
+    grid-template-columns: 150px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+
+  /* Live-preview floating settings panel (no background blur so dialogue stays clear) */
+  .modal-backdrop.settings-backdrop {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 58px 16px 16px;
+  }
+  .modal-backdrop.settings-backdrop.anchor-bottom {
+    align-items: flex-end;
+    padding: 16px 16px 24px;
+  }
+  .settings-backdrop .modal {
+    width: min(390px, calc(100vw - 24px));
+    max-height: min(64vh, 520px);
+    background: rgba(18, 19, 26, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  }
+  .settings-backdrop .modal-head { padding: 10px 14px; }
+  .settings-backdrop .modal-body { padding: 12px 14px; }
+  .settings-backdrop .form-grid { gap: 10px; }
+  .settings-backdrop .form-row {
+    grid-template-columns: 112px 1fr auto;
+    gap: 8px;
+    font-size: 12.5px;
+  }
+
+  /* End of story modal */
+  .end-modal { width: min(400px, 100%); }
+  .end-body {
+    padding: 26px 20px 22px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .end-mark { font-size: 18px; font-weight: 700; letter-spacing: 0.12em; color: #ff9ec7; }
+  .end-title { font-size: 15px; font-weight: 700; color: #f2f3f7; }
+  .end-sub { font-size: 13px; color: #b5bbcb; margin-bottom: 6px; }
+  .end-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+  @media (max-width: 560px) {
+    .form-row { grid-template-columns: 1fr; gap: 5px; }
+    .modal-backdrop.settings-backdrop { justify-content: center; padding: max(12px, env(safe-area-inset-top)) 10px 10px; }
+    .modal-backdrop.settings-backdrop.anchor-bottom { padding: 10px; }
+    .settings-backdrop .modal { max-height: 55vh; }
+    .settings-backdrop .form-row { grid-template-columns: 98px 1fr auto; }
+  }
+  .form-label { color: #d5d9e4; display: flex; align-items: center; gap: 6px; }
+  .color-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .form-input, .form-select {
+    background: #0d0e13;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #f6f7fa;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    width: 100%;
+  }
+  .form-range { width: 100%; accent-color: #ff9ec7; cursor: pointer; }
+  .form-val { min-width: 48px; text-align: right; color: #bfc5d4; font-variant-numeric: tabular-nums; font-size: 12px; }
+  .check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #dde0eb; cursor: pointer; }
+  .modal-foot {
+    padding: 10px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.10);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn-primary {
+    appearance: none;
+    border: 1px solid rgba(255, 158, 199, 0.75);
+    background: rgba(255, 158, 199, 0.25);
+    color: #ffe3ef;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-primary:hover { background: rgba(255, 158, 199, 0.38); }
+  .btn-ghost {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    color: #e6e8f0;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+</style>
+</head>
+<body>
+
+<div class="topbar" id="topbar">
+  <div class="tb-nav">
+    <span class="tb-title" id="tbTitle"></span>
+    <span class="tb-sep" id="tbTitleSep"></span>
+    <button class="tb-btn" id="btnPrev" type="button" title="前へ (←)">◀ 前</button>
+    <span class="tb-page" id="tbPage">1 / 1</span>
+    <button class="tb-btn" id="btnNext" type="button" title="次へ (→ / Space)">次 ▶</button>
+    <button class="tb-btn tb-close-btn" id="btnCloseTopbar" type="button" title="閉じる">×</button>
+  </div>
+  <span class="tb-sep tb-main-sep"></span>
+  <div class="tb-actions" id="tbActions">
+    <button class="tb-btn" id="btnToggleText" type="button" title="セリフ ON/OFF (H)">セリフ ON</button>
+    <button class="tb-btn" id="btnAuto" type="button" title="オート再生 (A)">オート</button>
+    <button class="tb-btn" id="btnLog" type="button" title="バックログ (L)">ログ</button>
+    <button class="tb-btn" id="btnThumbs" type="button" title="サムネ一覧 (G)">サムネ一覧</button>
+    <button class="tb-btn" id="btnNames" type="button" title="名前設定 (N)">名前設定</button>
+    <button class="tb-btn" id="btnSettings" type="button" title="表示設定 (S)">表示設定</button>
+    <button class="tb-btn" id="btnFullscreen" type="button" title="全画面表示 (F)">全画面</button>
+  </div>
+</div>
+
+<button class="menu-toggle-btn" id="btnMenuToggle" type="button" title="操作バーを表示 (M)">≡</button>
+<button class="restore-btn" id="btnRestoreText" type="button" title="セリフを表示 (H)">セリフを表示</button>
+
+<main class="stage" id="stage">
+  <div class="stage-frame" id="stageFrame">
+    <img class="main-img" id="mainImg" alt="">
+    <section class="band" id="band">
+      <div class="band-inner" id="bandInner">
+        <div class="speaker-wrap" id="speakerWrap">
+          <span class="speaker-accent" id="speakerAccent"></span>
+          <span class="speaker-name" id="speakerName"></span>
+        </div>
+        <div class="dialogue-text" id="dialogueText"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+<!-- Backlog Modal -->
+<div class="modal-backdrop" id="modalLog">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">バックログ（選ぶと移動）</span>
+      <button class="modal-close" data-close="modalLog" type="button">閉じる</button>
+    </div>
+    <div class="modal-body">
+      <div class="log-list" id="logList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Thumbnails Modal -->
+<div class="modal-backdrop" id="modalThumbs">
+  <div class="modal wide">
+    <div class="modal-head">
+      <span class="modal-title">サムネ一覧</span>
+      <button class="modal-close" data-close="modalThumbs" type="button">閉じる</button>
+    </div>
+    <div class="modal-body">
+      <div class="thumb-tabs">
+        <button class="tb-btn active" id="tabThumbScenes" type="button">シーン一覧（全ページ）</button>
+        <button class="tb-btn" id="tabThumbImages" type="button">画像一覧（CG別）</button>
+      </div>
+      <div class="thumb-grid" id="thumbGrid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Name Customization Modal -->
+<div class="modal-backdrop" id="modalNames">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">登場人物の名前設定</span>
+      <button class="modal-close" data-close="modalNames" type="button">閉じる</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" id="nameFormGrid"></div>
+      <div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.1);">
+        <label class="check-row">
+          <input type="checkbox" id="chkReplaceInBody">
+          <span>本文中の「彼」「彼女」などの表記も設定した名前に置き換える</span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="btnResetNames" type="button">初期名に戻す</button>
+      <button class="btn-primary" id="btnSaveNames" type="button">適用して閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Display Settings Modal -->
+<div class="modal-backdrop settings-backdrop" id="modalSettings">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">表示設定</span>
+      <button class="modal-close" data-close="modalSettings" type="button">閉じる</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <span class="form-label">文字背景の濃さ</span>
+          <input class="form-range" id="rngOpacity" type="range" min="1" max="100" step="1">
+          <span class="form-val" id="valOpacity"></span>
+        </div>
+        <div class="form-row">
+          <span class="form-label">文字サイズ</span>
+          <input class="form-range" id="rngFontScale" type="range" min="1" max="100" step="1">
+          <span class="form-val" id="valFontScale"></span>
+        </div>
+        <div class="form-row">
+          <span class="form-label">帯の配置</span>
+          <select class="form-select" id="selMode">
+            <option value="overlay">画像の下に重ねる</option>
+            <option value="extend">画像の下に分けて表示</option>
+          </select>
+          <span></span>
+        </div>
+        <div class="form-row">
+          <span class="form-label">文字送り</span>
+          <select class="form-select" id="selTextSpeed">
+            <option value="instant">一括表示</option>
+            <option value="typewriter">タイプライター</option>
+          </select>
+          <span></span>
+        </div>
+        <div class="form-row">
+          <span class="form-label">オート再生速度</span>
+          <input class="form-range" id="rngAutoSec" type="range" min="1.5" max="8.0" step="0.5">
+          <span class="form-val" id="valAutoSec"></span>
+        </div>
+      </div>
+      <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
+        <label class="check-row">
+          <input type="checkbox" id="chkPinTopbar">
+          <span>上部操作バーを常に表示する</span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="btnRestartStory" type="button">最初から読む</button>
+      <button class="btn-ghost" id="btnResetSettings" type="button">初期設定に戻す</button>
+      <button class="btn-primary" data-close="modalSettings" type="button">完了</button>
+    </div>
+  </div>
+</div>
+
+<!-- End of Story Modal -->
+<div class="modal-backdrop" id="modalEnd">
+  <div class="modal end-modal">
+    <div class="end-body">
+      <div class="end-mark">― おしまい ―</div>
+      <div class="end-title" id="endTitle"></div>
+      <div class="end-sub">最後までお読みいただきありがとうございました</div>
+      <div class="end-actions">
+        <button class="btn-primary" id="btnEndRestart" type="button">最初から読む</button>
+        <button class="btn-ghost" id="btnEndThumbs" type="button">サムネ一覧</button>
+        <button class="btn-ghost" data-close="modalEnd" type="button">閉じる</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="scenario.js"></script>
+<script>
+(function () {
+  const DATA = window.__DIALOGUE_VIEWER_DATA__;
+  if (!DATA || !Array.isArray(DATA.steps)) {
+    document.body.innerHTML = '<div style="padding:32px;color:#fff;">scenario.js が見つかりません。</div>';
+    return;
+  }
+
+  const SETTINGS_VERSION = 3;
+  const LS_PREFIX = "dv_" + (DATA.storyId || "story") + "_";
+  const KEY_IDX = LS_PREFIX + "index";
+  const KEY_NAMES = LS_PREFIX + "names";
+  const KEY_SETTINGS = LS_PREFIX + "settings";
+
+  const def = DATA.defaults || {};
+  const baseOpacity = typeof def.overlayOpacity === "number" ? def.overlayOpacity : 0.76;
+  const baseFade = typeof def.overlayFade === "number" ? def.overlayFade : 0.30;
+  const baseFontScale = typeof def.fontScale === "number" ? def.fontScale : 1.0;
+  const baseOutline = typeof def.textOutline === "number" ? def.textOutline : 0;
+  const basePosition = def.position === "top" ? "top" : "bottom";
+
+  const defaultSettings = {
+    version: SETTINGS_VERSION,
+    mode: def.mode === "extend" ? "extend" : "overlay",
+    opacityLevel: 50,
+    fontLevel: 50,
+    overlayMargin: typeof def.overlayMargin === "number" ? def.overlayMargin : 0.0,
+    speakerStyle: def.speakerStyle || "plate",
+    speakerGap: typeof def.speakerGap === "number" ? def.speakerGap : 0.50,
+    lineHeight: typeof def.lineHeight === "number" ? def.lineHeight : 1.45,
+    padX: typeof def.padX === "number" ? def.padX : 0.045,
+    textSpeed: "instant",
+    autoSec: 3.5,
+    replaceInBody: false,
+    dialogueVisible: true,
+    pinTopbar: false
+  };
+
+  function loadJson(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+  function saveJson(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
+  }
+
+  const loadedRawSettings = loadJson(KEY_SETTINGS, null);
+  let settings =
+    loadedRawSettings && loadedRawSettings.version === SETTINGS_VERSION
+      ? Object.assign({}, defaultSettings, loadedRawSettings)
+      : Object.assign({}, defaultSettings);
+
+  let customNames = loadJson(KEY_NAMES, {});
+  let currentIndex = 0;
+  const savedIdx = parseInt(localStorage.getItem(KEY_IDX) || "0", 10);
+  if (!isNaN(savedIdx) && savedIdx >= 0 && savedIdx < DATA.steps.length) {
+    currentIndex = savedIdx;
+  }
+
+  let autoPlaying = false;
+  let autoTimer = null;
+  let typeTimer = null;
+  let fullDisplayedText = "";
+  let isTyping = false;
+  let thumbMode = "scenes";
+
+  // Top bar auto-hide state
+  let topbarManualOpen = false;
+  let hoveringTopbar = false;
+  let hideTopbarTimer = null;
+
+  // Elements
+  const elTopbar = document.getElementById("topbar");
+  const elTbActions = document.getElementById("tbActions");
+  const elBtnCloseTopbar = document.getElementById("btnCloseTopbar");
+  const elBtnMenuToggle = document.getElementById("btnMenuToggle");
+  const elTitle = document.getElementById("tbTitle");
+  const elTitleSep = document.getElementById("tbTitleSep");
+  const elPage = document.getElementById("tbPage");
+  const elBtnPrev = document.getElementById("btnPrev");
+  const elBtnNext = document.getElementById("btnNext");
+  const elBtnToggleText = document.getElementById("btnToggleText");
+  const elBtnRestoreText = document.getElementById("btnRestoreText");
+  const elBtnAuto = document.getElementById("btnAuto");
+  const elBtnLog = document.getElementById("btnLog");
+  const elBtnThumbs = document.getElementById("btnThumbs");
+  const elBtnNames = document.getElementById("btnNames");
+  const elBtnSettings = document.getElementById("btnSettings");
+  const elBtnFullscreen = document.getElementById("btnFullscreen");
+  const elModalSettings = document.getElementById("modalSettings");
+
+  const elStage = document.getElementById("stage");
+  const elStageFrame = document.getElementById("stageFrame");
+  const elMainImg = document.getElementById("mainImg");
+  const elBand = document.getElementById("band");
+  const elSpeakerWrap = document.getElementById("speakerWrap");
+  const elSpeakerName = document.getElementById("speakerName");
+  const elDialogueText = document.getElementById("dialogueText");
+  const elProgressFill = document.getElementById("progressFill");
+
+  let currentImgW = 832;
+
+  const dispTitle = typeof DATA.displayTitle === "string" ? DATA.displayTitle : (DATA.title || "");
+  if (dispTitle) {
+    elTitle.textContent = dispTitle;
+  } else {
+    elTitle.style.display = "none";
+    elTitleSep.style.display = "none";
+  }
+
+  // Map 1-100 scale (where 50 == creator's tool default) to actual render values
+  function mapOpacityLevel(v) {
+    const lv = Math.max(1, Math.min(100, Number(v) || 50));
+    if (lv <= 50) return baseOpacity * ((lv - 1) / 49);
+    return baseOpacity + (1.0 - baseOpacity) * ((lv - 50) / 50);
+  }
+  function mapFontMult(v) {
+    const lv = Math.max(1, Math.min(100, Number(v) || 50));
+    return lv <= 50 ? 0.65 + ((lv - 1) / 49) * 0.35 : 1.0 + ((lv - 50) / 50) * 0.45;
+  }
+  function updateFontSizeCss() {
+    const imgW = currentImgW > 40 ? currentImgW : Math.min(window.innerWidth, 832);
+    const basePx = Math.max(14, Math.min(36, imgW * 0.032 * baseFontScale));
+    const finalPx = Math.max(10, Math.min(48, basePx * mapFontMult(settings.fontLevel)));
+    document.documentElement.style.setProperty("--font-px", finalPx.toFixed(2) + "px");
+  }
+
+  function clearTopbarHideTimer() {
+    if (hideTopbarTimer) {
+      clearTimeout(hideTopbarTimer);
+      hideTopbarTimer = null;
+    }
+  }
+  function scheduleTopbarHide(delayMs) {
+    clearTopbarHideTimer();
+    if (settings.pinTopbar || topbarManualOpen || hoveringTopbar) return;
+    hideTopbarTimer = setTimeout(() => {
+      if (!settings.pinTopbar && !topbarManualOpen && !hoveringTopbar) {
+        document.body.classList.remove("topbar-visible");
+      }
+    }, delayMs);
+  }
+  function showTopbar(autoHideMs) {
+    clearTopbarHideTimer();
+    if (!settings.dialogueVisible) return;
+    document.body.classList.add("topbar-visible");
+    if (autoHideMs > 0 && !settings.pinTopbar && !topbarManualOpen) {
+      scheduleTopbarHide(autoHideMs);
+    }
+  }
+  function hideTopbar() {
+    clearTopbarHideTimer();
+    topbarManualOpen = false;
+    if (!settings.pinTopbar) {
+      document.body.classList.remove("topbar-visible");
+    }
+  }
+
+  function hexToRgb(hex) {
+    const clean = (hex || "#0C0C0E").replace("#", "");
+    const full = clean.length === 3 ? clean.split("").map(c => c + c).join("") : clean;
+    const n = parseInt(full, 16);
+    if (isNaN(n)) return [12, 12, 14];
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function getDisplaySpeaker(rawSp) {
+    if (!rawSp) return "";
+    const custom = (customNames[rawSp] || "").trim();
+    return custom || rawSp;
+  }
+
+  function formatBodyText(rawText) {
+    if (!rawText) return "";
+    let out = rawText;
+    const speakers = (DATA.speakers || []).slice().sort((a, b) => b.length - a.length);
+    for (const sp of speakers) {
+      const disp = getDisplaySpeaker(sp);
+      out = out.split("{{" + sp + "}}").join(disp).split("{" + sp + "}").join(disp);
+    }
+    if (settings.replaceInBody && speakers.length > 0) {
+      const activeSpeakers = speakers.filter(sp => (customNames[sp] || "").trim() !== "");
+      if (activeSpeakers.length > 0) {
+        const protectedSet = new Set(activeSpeakers);
+        if (protectedSet.has("彼")) protectedSet.add("彼女");
+        const patternKeys = Array.from(protectedSet).sort((a, b) => b.length - a.length);
+        const re = new RegExp(patternKeys.map(escapeRegExp).join("|"), "g");
+        out = out.replace(re, match => getDisplaySpeaker(match));
+      }
+    }
+    return out;
+  }
+
+  function buildTextOutlineShadow(lvl, isOverlay) {
+    const baseShadow = isOverlay ? "0 2px 6px rgba(0,0,0,0.88)" : "";
+    if (!lvl || lvl <= 0) return baseShadow || "none";
+    const r = Math.min(3, Math.max(1, Math.round(lvl)));
+    const pts = [];
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dy = -r; dy <= r; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        if (dx * dx + dy * dy <= r * r + 1) {
+          pts.push(`${dx}px ${dy}px 0 rgba(0,0,0,0.92)`);
+        }
+      }
+    }
+    if (baseShadow) pts.push(baseShadow);
+    return pts.join(", ");
+  }
+
+  function syncGeometry() {
+    const rect = elMainImg.getBoundingClientRect();
+    if (rect.width > 40) {
+      currentImgW = rect.width;
+      document.documentElement.style.setProperty("--img-w", rect.width.toFixed(1) + "px");
+      updateFontSizeCss();
+      if (settings.mode === "extend") {
+        elBand.style.width = rect.width.toFixed(1) + "px";
+      } else {
+        elBand.style.width = "100%";
+      }
+    }
+    if (settings.mode === "extend" && !elBand.classList.contains("empty-cg")) {
+      const bh = elBand.getBoundingClientRect().height;
+      if (bh > 20) {
+        document.documentElement.style.setProperty("--extend-reserve", Math.ceil(bh) + "px");
+      }
+    } else {
+      document.documentElement.style.setProperty("--extend-reserve", "0px");
+    }
+  }
+
+  if (typeof ResizeObserver !== "undefined") {
+    const ro = new ResizeObserver(() => syncGeometry());
+    ro.observe(elMainImg);
+    ro.observe(elBand);
+  }
+  window.addEventListener("resize", syncGeometry);
+  elMainImg.addEventListener("load", syncGeometry);
+
+  function applyThemeStyles() {
+    const rootStyle = document.documentElement.style;
+    const [r, g, b] = hexToRgb(def.bandColor || "#0C0C0E");
+    const op = Math.max(0, Math.min(1, mapOpacityLevel(settings.opacityLevel)));
+    const fadePct = Math.max(0, Math.min(60, Math.round(baseFade * 100)));
+
+    let bgGrad;
+    if (fadePct <= 0) {
+      bgGrad = `rgba(${r},${g},${b},${op})`;
+    } else if (basePosition === "top") {
+      bgGrad = `linear-gradient(to top, rgba(${r},${g},${b},0) 0%, rgba(${r},${g},${b},${(op * 0.45).toFixed(3)}) ${(fadePct * 0.45).toFixed(1)}%, rgba(${r},${g},${b},${op}) ${fadePct}%, rgba(${r},${g},${b},${op}) 100%)`;
+    } else {
+      bgGrad = `linear-gradient(to bottom, rgba(${r},${g},${b},0) 0%, rgba(${r},${g},${b},${(op * 0.45).toFixed(3)}) ${(fadePct * 0.45).toFixed(1)}%, rgba(${r},${g},${b},${op}) ${fadePct}%, rgba(${r},${g},${b},${op}) 100%)`;
+    }
+
+    rootStyle.setProperty("--band-bg", bgGrad);
+    rootStyle.setProperty("--band-bg-solid", `rgb(${r},${g},${b})`);
+    rootStyle.setProperty("--text-color", def.textColor || "#FFFFFF");
+    rootStyle.setProperty("--narration-color", def.narrationColor || "#EAEDF5");
+    updateFontSizeCss();
+    rootStyle.setProperty("--speaker-gap", String(settings.speakerGap));
+    rootStyle.setProperty("--line-height", String(settings.lineHeight));
+    rootStyle.setProperty("--pad-x", String(settings.padX));
+    rootStyle.setProperty("--overlay-margin", Math.round(settings.overlayMargin * 100) + "vh");
+    rootStyle.setProperty("--fade-pad", settings.mode === "overlay" && fadePct > 0 ? Math.max(12, Math.round(fadePct * 0.65)) + "px" : "0px");
+
+    elStageFrame.classList.toggle("mode-overlay", settings.mode === "overlay");
+    elStageFrame.classList.toggle("mode-extend", settings.mode === "extend");
+    elStageFrame.classList.toggle("pos-bottom", basePosition !== "top");
+    elStageFrame.classList.toggle("pos-top", basePosition === "top");
+    elModalSettings.classList.toggle("anchor-bottom", basePosition === "top");
+
+    const outlineCss = buildTextOutlineShadow(baseOutline, settings.mode === "overlay");
+    elDialogueText.style.textShadow = outlineCss;
+    elSpeakerName.style.textShadow = outlineCss;
+
+    document.body.classList.toggle("dialogue-hidden", !settings.dialogueVisible);
+    document.body.classList.toggle("topbar-pinned", Boolean(settings.pinTopbar));
+    elBtnToggleText.textContent = settings.dialogueVisible ? "セリフ ON" : "セリフ OFF";
+    elBtnToggleText.classList.toggle("active", !settings.dialogueVisible);
+
+    if (settings.pinTopbar && settings.dialogueVisible) {
+      showTopbar(0);
+    } else if (!topbarManualOpen && !hoveringTopbar) {
+      scheduleTopbarHide(800);
+    }
+
+    saveJson(KEY_SETTINGS, settings);
+    syncGeometry();
+  }
+
+  function stopTypewriter() {
+    if (typeTimer) {
+      clearInterval(typeTimer);
+      typeTimer = null;
+    }
+    isTyping = false;
+  }
+
+  function finishTypewriter(showCaret) {
+    stopTypewriter();
+    elDialogueText.textContent = fullDisplayedText;
+    if (showCaret && currentIndex < DATA.steps.length - 1) {
+      const sp = document.createElement("span");
+      sp.className = "next-caret";
+      sp.textContent = "▼";
+      elDialogueText.appendChild(sp);
+    }
+  }
+
+  function renderStep(animateText) {
+    stopTypewriter();
+    if (DATA.steps.length === 0) return;
+    const step = DATA.steps[currentIndex];
+
+    if (elMainImg.getAttribute("src") !== step.image) {
+      elMainImg.setAttribute("src", step.image);
+    }
+    if (currentIndex + 1 < DATA.steps.length) {
+      const preload = new Image();
+      preload.src = DATA.steps[currentIndex + 1].image;
+    }
+
+    elPage.textContent = `${currentIndex + 1} / ${DATA.steps.length}`;
+    elBtnPrev.disabled = currentIndex <= 0;
+    elBtnNext.disabled = currentIndex >= DATA.steps.length - 1;
+    elProgressFill.style.width = (((currentIndex + 1) / DATA.steps.length) * 100).toFixed(2) + "%";
+
+    const rawSp = step.speaker || "";
+    const dispSp = getDisplaySpeaker(rawSp);
+    const bodyText = formatBodyText(step.text || "");
+    const hasContent = Boolean(dispSp || bodyText);
+
+    elBand.classList.toggle("empty-cg", !hasContent);
+    elBand.classList.toggle("is-narration", !rawSp);
+
+    const spStyle = def.speakerStyle || settings.speakerStyle || "plate";
+    if (dispSp) {
+      const spColor = (DATA.speakerColors && DATA.speakerColors[rawSp]) || "#FF9EC7";
+      elSpeakerWrap.style.display = "inline-flex";
+      elSpeakerWrap.style.setProperty("--sp-color", spColor);
+      elSpeakerWrap.style.setProperty("--sp-border", spColor + "B8");
+      elSpeakerWrap.className = "speaker-wrap style-" + spStyle;
+      elSpeakerName.textContent = spStyle === "bracket" ? `【${dispSp}】` : dispSp;
+    } else {
+      elSpeakerWrap.style.display = "none";
+      elSpeakerName.textContent = "";
+    }
+
+    fullDisplayedText = bodyText;
+    if (animateText && settings.textSpeed === "typewriter" && bodyText.length > 0 && settings.dialogueVisible) {
+      isTyping = true;
+      elDialogueText.textContent = "";
+      let pos = 0;
+      typeTimer = setInterval(() => {
+        pos += 1;
+        elDialogueText.textContent = fullDisplayedText.slice(0, pos);
+        if (pos >= fullDisplayedText.length) {
+          finishTypewriter(true);
+        }
+      }, 28);
+    } else {
+      finishTypewriter(true);
+    }
+
+    try { localStorage.setItem(KEY_IDX, String(currentIndex)); } catch (_) {}
+    syncGeometry();
+  }
+
+  function scheduleNextAuto() {
+    if (autoTimer) {
+      clearTimeout(autoTimer);
+      autoTimer = null;
+    }
+    if (!autoPlaying || isAnyModalOpen()) return;
+    const curText = DATA.steps[currentIndex].text || "";
+    const delayMs = Math.round(settings.autoSec * 1000 + Math.min(2500, curText.length * 45));
+    autoTimer = setTimeout(() => {
+      if (!autoPlaying || isAnyModalOpen()) return;
+      if (isTyping) {
+        finishTypewriter(true);
+        scheduleNextAuto();
+      } else if (currentIndex < DATA.steps.length - 1) {
+        goToStep(currentIndex + 1, true);
+      } else {
+        setAutoPlay(false);
+        openEndModal();
+      }
+    }, delayMs);
+  }
+
+  function setAutoPlay(enable) {
+    autoPlaying = Boolean(enable);
+    elBtnAuto.classList.toggle("active", autoPlaying);
+    elBtnAuto.textContent = autoPlaying ? "オート中" : "オート";
+    if (autoTimer) {
+      clearTimeout(autoTimer);
+      autoTimer = null;
+    }
+    if (autoPlaying) {
+      scheduleNextAuto();
+    }
+  }
+
+  function goToStep(idx, animate) {
+    const clamped = Math.max(0, Math.min(DATA.steps.length - 1, idx));
+    currentIndex = clamped;
+    renderStep(animate);
+    if (autoPlaying) scheduleNextAuto();
+  }
+
+  function advance(allowEndModal = true) {
+    if (topbarManualOpen) hideTopbar();
+    if (isTyping) {
+      finishTypewriter(true);
+      if (autoPlaying) scheduleNextAuto();
+      return;
+    }
+    if (currentIndex < DATA.steps.length - 1) {
+      goToStep(currentIndex + 1, true);
+    } else {
+      if (autoPlaying) setAutoPlay(false);
+      if (allowEndModal) openEndModal();
+    }
+  }
+
+  function stepBack() {
+    if (topbarManualOpen) hideTopbar();
+    if (currentIndex > 0) {
+      goToStep(currentIndex - 1, false);
+    }
+  }
+
+  function toggleDialogue() {
+    settings.dialogueVisible = !settings.dialogueVisible;
+    if (!settings.dialogueVisible) {
+      topbarManualOpen = false;
+      document.body.classList.remove("topbar-visible");
+    }
+    applyThemeStyles();
+    if (settings.dialogueVisible && isTyping) {
+      finishTypewriter(true);
+    }
+  }
+
+  // Modals
+  const MODAL_IDS = ["modalLog", "modalThumbs", "modalNames", "modalSettings", "modalEnd"];
+  function isAnyModalOpen() {
+    return MODAL_IDS.some(id => document.getElementById(id).classList.contains("open"));
+  }
+  function closeAllModals() {
+    for (const id of MODAL_IDS) {
+      document.getElementById(id).classList.remove("open");
+    }
+    document.body.classList.remove("modal-open");
+    if (autoPlaying) scheduleNextAuto();
+  }
+  function openModal(id) {
+    closeAllModals();
+    topbarManualOpen = false;
+    if (!settings.pinTopbar) {
+      document.body.classList.remove("topbar-visible");
+    }
+    document.body.classList.add("modal-open");
+    document.getElementById(id).classList.add("open");
+    if (autoTimer) {
+      clearTimeout(autoTimer);
+      autoTimer = null;
+    }
+  }
+  function openEndModal() {
+    const endTitleEl = document.getElementById("endTitle");
+    if (dispTitle) {
+      endTitleEl.textContent = dispTitle;
+      endTitleEl.style.display = "block";
+    } else {
+      endTitleEl.style.display = "none";
+    }
+    openModal("modalEnd");
+  }
+
+  // Backlog rendering
+  function openBacklog() {
+    const list = document.getElementById("logList");
+    list.innerHTML = "";
+    for (let i = 0; i <= currentIndex; i++) {
+      const st = DATA.steps[i];
+      const item = document.createElement("div");
+      item.className = "log-item" + (i === currentIndex ? " current" : "");
+      const meta = document.createElement("div");
+      meta.className = "log-meta";
+      const num = document.createElement("span");
+      num.className = "log-num";
+      num.textContent = "#" + (i + 1);
+      const sp = document.createElement("span");
+      sp.className = "log-sp";
+      const dispSp = getDisplaySpeaker(st.speaker);
+      const bodyStr = formatBodyText(st.text);
+      if (dispSp) {
+        sp.textContent = dispSp;
+        sp.style.color = (DATA.speakerColors && DATA.speakerColors[st.speaker]) || "#FF9EC7";
+      } else {
+        sp.textContent = bodyStr ? "地の文" : "（セリフなし）";
+        sp.style.color = "#a5adc0";
+      }
+      meta.appendChild(num);
+      meta.appendChild(sp);
+      item.appendChild(meta);
+      if (bodyStr) {
+        const txt = document.createElement("div");
+        txt.className = "log-txt";
+        txt.textContent = bodyStr;
+        item.appendChild(txt);
+      }
+      item.addEventListener("click", () => {
+        closeAllModals();
+        goToStep(i, false);
+      });
+      list.appendChild(item);
+    }
+    openModal("modalLog");
+    list.parentElement.scrollTop = list.parentElement.scrollHeight;
+  }
+
+  // Thumbnail list rendering
+  function renderThumbGrid() {
+    const grid = document.getElementById("thumbGrid");
+    const btnSc = document.getElementById("tabThumbScenes");
+    const btnIm = document.getElementById("tabThumbImages");
+    btnSc.classList.toggle("active", thumbMode === "scenes");
+    btnIm.classList.toggle("active", thumbMode === "images");
+    grid.innerHTML = "";
+
+    let items = [];
+    if (thumbMode === "scenes") {
+      items = DATA.steps.map((st, idx) => ({
+        stepIndex: idx,
+        image: st.image,
+        badge: `#${idx + 1}`,
+        speakerRaw: st.speaker,
+        speakerDisp: getDisplaySpeaker(st.speaker),
+        snippet: formatBodyText(st.text),
+        isCurrent: idx === currentIndex
+      }));
+    } else {
+      const seenImg = new Map();
+      DATA.steps.forEach((st, idx) => {
+        if (!seenImg.has(st.image)) {
+          seenImg.set(st.image, {
+            stepIndex: idx,
+            image: st.image,
+            count: 0,
+            snippet: formatBodyText(st.text),
+            hasCurrent: false
+          });
+        }
+        const entry = seenImg.get(st.image);
+        entry.count += 1;
+        if (idx === currentIndex) entry.hasCurrent = true;
+      });
+      items = Array.from(seenImg.values()).map((it, imgIdx) => ({
+        stepIndex: it.stepIndex,
+        image: it.image,
+        badge: it.count > 1 ? `No.${imgIdx + 1} (${it.count}頁)` : `No.${imgIdx + 1}`,
+        speakerRaw: "",
+        speakerDisp: "",
+        snippet: it.snippet,
+        isCurrent: it.hasCurrent
+      }));
+    }
+
+    for (const it of items) {
+      const card = document.createElement("div");
+      card.className = "thumb-card" + (it.isCurrent ? " current" : "");
+      const imgWrap = document.createElement("div");
+      imgWrap.className = "thumb-img-wrap";
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.src = it.image;
+      img.alt = it.badge;
+      const badge = document.createElement("span");
+      badge.className = "thumb-badge";
+      badge.textContent = it.badge;
+      imgWrap.appendChild(img);
+      imgWrap.appendChild(badge);
+      card.appendChild(imgWrap);
+
+      if (it.speakerDisp || it.snippet) {
+        const cap = document.createElement("div");
+        cap.className = "thumb-cap";
+        if (it.speakerDisp) {
+          const spEl = document.createElement("div");
+          spEl.className = "thumb-sp";
+          spEl.textContent = it.speakerDisp;
+          spEl.style.color = (DATA.speakerColors && DATA.speakerColors[it.speakerRaw]) || "#FF9EC7";
+          cap.appendChild(spEl);
+        }
+        if (it.snippet) {
+          const snEl = document.createElement("div");
+          snEl.className = "thumb-snip";
+          snEl.textContent = it.snippet;
+          cap.appendChild(snEl);
+        }
+        card.appendChild(cap);
+      }
+
+      card.addEventListener("click", () => {
+        closeAllModals();
+        goToStep(it.stepIndex, false);
+      });
+      grid.appendChild(card);
+    }
+  }
+
+  function openThumbs() {
+    renderThumbGrid();
+    openModal("modalThumbs");
+  }
+
+  // Name customization modal
+  function openNamesModal() {
+    const grid = document.getElementById("nameFormGrid");
+    grid.innerHTML = "";
+    const speakers = DATA.speakers || [];
+    if (speakers.length === 0) {
+      grid.innerHTML = '<div style="color:#a9b0c2;font-size:13px;">名前を変更できる登場人物がありません。</div>';
+    } else {
+      for (const sp of speakers) {
+        const row = document.createElement("div");
+        row.className = "form-row";
+        const lbl = document.createElement("label");
+        lbl.className = "form-label";
+        const dot = document.createElement("span");
+        dot.className = "color-dot";
+        dot.style.background = (DATA.speakerColors && DATA.speakerColors[sp]) || "#FF9EC7";
+        lbl.appendChild(dot);
+        lbl.appendChild(document.createTextNode(sp));
+
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "form-input";
+        inp.placeholder = sp + "（空欄で初期名）";
+        inp.value = customNames[sp] || "";
+        inp.dataset.speaker = sp;
+
+        const clr = document.createElement("button");
+        clr.type = "button";
+        clr.className = "btn-ghost";
+        clr.textContent = "元に戻す";
+        clr.addEventListener("click", () => { inp.value = ""; });
+
+        row.appendChild(lbl);
+        row.appendChild(inp);
+        row.appendChild(clr);
+        grid.appendChild(row);
+      }
+    }
+    document.getElementById("chkReplaceInBody").checked = Boolean(settings.replaceInBody);
+    openModal("modalNames");
+  }
+
+  function saveNamesFromModal() {
+    const inputs = document.querySelectorAll("#nameFormGrid input[data-speaker]");
+    const nextNames = {};
+    inputs.forEach(inp => {
+      const val = inp.value.trim();
+      if (val) nextNames[inp.dataset.speaker] = val;
+    });
+    customNames = nextNames;
+    settings.replaceInBody = document.getElementById("chkReplaceInBody").checked;
+    saveJson(KEY_NAMES, customNames);
+    saveJson(KEY_SETTINGS, settings);
+    closeAllModals();
+    renderStep(false);
+  }
+
+  // Settings modal sync
+  const elRngOpacity = document.getElementById("rngOpacity");
+  const elValOpacity = document.getElementById("valOpacity");
+  const elSelMode = document.getElementById("selMode");
+  const elRngFontScale = document.getElementById("rngFontScale");
+  const elValFontScale = document.getElementById("valFontScale");
+  const elSelTextSpeed = document.getElementById("selTextSpeed");
+  const elRngAutoSec = document.getElementById("rngAutoSec");
+  const elValAutoSec = document.getElementById("valAutoSec");
+  const elChkPinTopbar = document.getElementById("chkPinTopbar");
+
+  if (basePosition === "top") {
+    const optOv = elSelMode.querySelector('option[value="overlay"]');
+    const optEx = elSelMode.querySelector('option[value="extend"]');
+    if (optOv) optOv.textContent = "画像の上に重ねる";
+    if (optEx) optEx.textContent = "画像の上に分けて表示";
+  }
+
+  function syncSettingsUI() {
+    elRngOpacity.value = settings.opacityLevel;
+    elValOpacity.textContent = String(settings.opacityLevel);
+    elSelMode.value = settings.mode;
+    elRngFontScale.value = settings.fontLevel;
+    elValFontScale.textContent = String(settings.fontLevel);
+    elSelTextSpeed.value = settings.textSpeed;
+    elRngAutoSec.value = settings.autoSec;
+    elValAutoSec.textContent = settings.autoSec.toFixed(1) + "秒";
+    elChkPinTopbar.checked = Boolean(settings.pinTopbar);
+  }
+
+  elRngOpacity.addEventListener("input", () => {
+    settings.opacityLevel = Number(elRngOpacity.value);
+    elValOpacity.textContent = elRngOpacity.value;
+    applyThemeStyles();
+  });
+  elSelMode.addEventListener("change", () => {
+    settings.mode = elSelMode.value === "extend" ? "extend" : "overlay";
+    applyThemeStyles();
+  });
+  elRngFontScale.addEventListener("input", () => {
+    settings.fontLevel = Number(elRngFontScale.value);
+    elValFontScale.textContent = elRngFontScale.value;
+    applyThemeStyles();
+  });
+  elSelTextSpeed.addEventListener("change", () => {
+    settings.textSpeed = elSelTextSpeed.value;
+    applyThemeStyles();
+  });
+  elRngAutoSec.addEventListener("input", () => {
+    settings.autoSec = Number(elRngAutoSec.value);
+    elValAutoSec.textContent = settings.autoSec.toFixed(1) + "秒";
+    saveJson(KEY_SETTINGS, settings);
+  });
+  elChkPinTopbar.addEventListener("change", () => {
+    settings.pinTopbar = elChkPinTopbar.checked;
+    applyThemeStyles();
+  });
+
+  document.getElementById("btnResetSettings").addEventListener("click", () => {
+    const keepVis = settings.dialogueVisible;
+    const keepRep = settings.replaceInBody;
+    settings = Object.assign({}, defaultSettings, { dialogueVisible: keepVis, replaceInBody: keepRep });
+    syncSettingsUI();
+    applyThemeStyles();
+    renderStep(false);
+  });
+  document.getElementById("btnRestartStory").addEventListener("click", () => {
+    closeAllModals();
+    goToStep(0, true);
+  });
+  document.getElementById("btnEndRestart").addEventListener("click", () => {
+    closeAllModals();
+    goToStep(0, true);
+  });
+  document.getElementById("btnEndThumbs").addEventListener("click", () => {
+    openThumbs();
+  });
+
+  // Fullscreen toggle
+  function isFullscreenSupported() {
+    return Boolean(
+      document.fullscreenEnabled ||
+      document.webkitFullscreenEnabled ||
+      document.documentElement.requestFullscreen ||
+      document.documentElement.webkitRequestFullscreen
+    );
+  }
+  function getFullscreenEl() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+  function updateFullscreenBtn() {
+    const supported = isFullscreenSupported();
+    elTbActions.classList.toggle("cols-3", !supported);
+    if (!supported) {
+      elBtnFullscreen.style.display = "none";
+      return;
+    }
+    const active = Boolean(getFullscreenEl());
+    elBtnFullscreen.classList.toggle("active", active);
+    elBtnFullscreen.textContent = active ? "全画面解除" : "全画面";
+    setTimeout(syncGeometry, 60);
+  }
+  function toggleFullscreen() {
+    if (!isFullscreenSupported()) return;
+    const root = document.documentElement;
+    if (!getFullscreenEl()) {
+      const fn = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (fn) Promise.resolve(fn.call(root)).catch(() => {});
+    } else {
+      const fn = document.exitFullscreen || document.webkitExitFullscreen;
+      if (fn) Promise.resolve(fn.call(document)).catch(() => {});
+    }
+  }
+  document.addEventListener("fullscreenchange", updateFullscreenBtn);
+  document.addEventListener("webkitfullscreenchange", updateFullscreenBtn);
+  updateFullscreenBtn();
+
+  // Top bar auto-hide interactions
+  window.addEventListener("mousemove", e => {
+    if (!settings.dialogueVisible || isAnyModalOpen()) return;
+    if (e.clientY <= 72) {
+      showTopbar(2000);
+    }
+  }, { passive: true });
+  elTopbar.addEventListener("mouseenter", () => {
+    hoveringTopbar = true;
+    showTopbar(0);
+  });
+  elTopbar.addEventListener("mouseleave", () => {
+    hoveringTopbar = false;
+    if (!settings.pinTopbar && !topbarManualOpen) {
+      scheduleTopbarHide(900);
+    }
+  });
+  elBtnMenuToggle.addEventListener("click", e => {
+    e.stopPropagation();
+    topbarManualOpen = !topbarManualOpen;
+    if (topbarManualOpen) {
+      showTopbar(0);
+    } else {
+      hideTopbar();
+    }
+  });
+
+  // Button wiring
+  elBtnCloseTopbar.addEventListener("click", e => { e.stopPropagation(); hideTopbar(); });
+  elBtnPrev.addEventListener("click", e => { e.stopPropagation(); stepBack(); });
+  elBtnNext.addEventListener("click", e => { e.stopPropagation(); advance(true); });
+  elBtnToggleText.addEventListener("click", e => { e.stopPropagation(); toggleDialogue(); });
+  elBtnRestoreText.addEventListener("click", e => { e.stopPropagation(); toggleDialogue(); });
+  elBtnAuto.addEventListener("click", e => { e.stopPropagation(); setAutoPlay(!autoPlaying); });
+  elBtnLog.addEventListener("click", e => { e.stopPropagation(); openBacklog(); });
+  elBtnThumbs.addEventListener("click", e => { e.stopPropagation(); openThumbs(); });
+  elBtnNames.addEventListener("click", e => { e.stopPropagation(); openNamesModal(); });
+  elBtnSettings.addEventListener("click", e => {
+    e.stopPropagation();
+    syncSettingsUI();
+    openModal("modalSettings");
+  });
+  elBtnFullscreen.addEventListener("click", e => { e.stopPropagation(); toggleFullscreen(); });
+
+  document.getElementById("tabThumbScenes").addEventListener("click", () => {
+    thumbMode = "scenes";
+    renderThumbGrid();
+  });
+  document.getElementById("tabThumbImages").addEventListener("click", () => {
+    thumbMode = "images";
+    renderThumbGrid();
+  });
+  document.getElementById("btnResetNames").addEventListener("click", () => {
+    document.querySelectorAll("#nameFormGrid input[data-speaker]").forEach(inp => { inp.value = ""; });
+  });
+  document.getElementById("btnSaveNames").addEventListener("click", saveNamesFromModal);
+
+  document.querySelectorAll("[data-close]").forEach(btn => {
+    btn.addEventListener("click", () => closeAllModals());
+  });
+  document.querySelectorAll(".modal-backdrop").forEach(bd => {
+    bd.addEventListener("click", e => {
+      if (e.target === bd) closeAllModals();
+    });
+  });
+
+  // Touch swipe & stage click (left 20% steps back, rest advances) & wheel navigation
+  let lastSwipeAt = 0;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchStartAt = 0;
+  let touchMulti = false;
+
+  elStage.addEventListener("touchstart", e => {
+    if (isAnyModalOpen() || e.touches.length !== 1) {
+      touchMulti = e.touches.length > 1;
+      return;
+    }
+    touchMulti = false;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartAt = Date.now();
+  }, { passive: true });
+
+  elStage.addEventListener("touchmove", e => {
+    if (e.touches.length > 1) touchMulti = true;
+  }, { passive: true });
+
+  elStage.addEventListener("touchend", e => {
+    if (touchMulti || isAnyModalOpen() || e.changedTouches.length !== 1) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    const dt = Date.now() - touchStartAt;
+    if (dt < 600 && Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      lastSwipeAt = Date.now();
+      if (dx < 0) advance(true);
+      else stepBack();
+    }
+  }, { passive: true });
+
+  elStage.addEventListener("click", e => {
+    if (isAnyModalOpen()) return;
+    if (Date.now() - lastSwipeAt < 400) return;
+    const sel = window.getSelection();
+    if (sel && sel.toString().length > 0) return;
+    const rect = elStage.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / Math.max(1, rect.width);
+    if (relX < 0.20) stepBack();
+    else advance(true);
+  });
+
+  let wheelLock = false;
+  window.addEventListener("wheel", e => {
+    if (isAnyModalOpen() || wheelLock) return;
+    if (Math.abs(e.deltaY) < 12) return;
+    wheelLock = true;
+    if (e.deltaY > 0) advance(false);
+    else stepBack();
+    setTimeout(() => { wheelLock = false; }, 140);
+  }, { passive: true });
+
+  // Keyboard shortcuts
+  window.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      if (isAnyModalOpen()) {
+        closeAllModals();
+      } else if (!settings.dialogueVisible) {
+        toggleDialogue();
+      } else if (topbarManualOpen) {
+        hideTopbar();
+      }
+      return;
+    }
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA")) {
+      if (e.key === "Enter" && document.getElementById("modalNames").classList.contains("open")) {
+        saveNamesFromModal();
+      }
+      return;
+    }
+    if (isAnyModalOpen()) return;
+
+    const k = e.key.toLowerCase();
+    if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") {
+      e.preventDefault();
+      advance(true);
+    } else if (e.key === "ArrowLeft" || e.key === "Backspace") {
+      e.preventDefault();
+      stepBack();
+    } else if (k === "h") {
+      e.preventDefault();
+      toggleDialogue();
+    } else if (k === "m") {
+      e.preventDefault();
+      if (!settings.dialogueVisible) return;
+      topbarManualOpen = !topbarManualOpen;
+      if (topbarManualOpen) showTopbar(0);
+      else hideTopbar();
+    } else if (k === "a") {
+      e.preventDefault();
+      setAutoPlay(!autoPlaying);
+    } else if (k === "l") {
+      e.preventDefault();
+      openBacklog();
+    } else if (k === "g") {
+      e.preventDefault();
+      openThumbs();
+    } else if (k === "n") {
+      e.preventDefault();
+      openNamesModal();
+    } else if (k === "s") {
+      e.preventDefault();
+      syncSettingsUI();
+      openModal("modalSettings");
+    } else if (k === "f") {
+      e.preventDefault();
+      toggleFullscreen();
+    }
+  });
+
+  // Initial render (show bar briefly on open, then auto-hide)
+  syncSettingsUI();
+  applyThemeStyles();
+  renderStep(false);
+  if (settings.dialogueVisible) {
+    showTopbar(2200);
+  }
+})();
+</script>
+</body>
+</html>

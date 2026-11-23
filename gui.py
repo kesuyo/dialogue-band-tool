@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Desktop GUI for Dialogue Band Batch Composer v1.3."""
+"""Desktop GUI for Dialogue Band Batch Composer v1.5."""
 
 import json
 import os
@@ -9,12 +9,14 @@ import subprocess
 import sys
 import threading
 import traceback
+import webbrowser
 from pathlib import Path
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 import add_dialogue_band as adb
+import export_html_viewer
 
 try:
     import ctypes
@@ -32,12 +34,13 @@ class DialogueBandApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("帯テキスト一括合成ツール v1.3")
+        self.root.title("帯テキスト一括合成ツール v1.5")
         self.root.geometry("1160x800")
         self.root.minsize(960, 680)
 
         self._initializing = True
         self.speaker_colors = {}
+        self.speaker_names = {}
         self.image_files = []
         self._preview_pil = None
         self._preview_photo = None
@@ -73,7 +76,6 @@ class DialogueBandApp:
 
         # Position / Transparency / Colors
         self.position_var = tk.StringVar(value="bottom")
-        self.align_var = tk.StringVar(value="left")
         self.text_offset_y_var = tk.DoubleVar(value=0.0)
         self.pad_x_var = tk.DoubleVar(value=4.5)
         self.line_height_var = tk.DoubleVar(value=1.45)
@@ -86,14 +88,15 @@ class DialogueBandApp:
         self.text_color_var = tk.StringVar(value=adb.rgb_to_hex(adb.DEFAULT_TEXT_COLOR))
         self.narration_color_var = tk.StringVar(value=adb.rgb_to_hex(adb.DEFAULT_NARRATION_COLOR))
         self.speaker_sel_var = tk.StringVar()
+        self.speaker_alias_var = tk.StringVar()
+        self.alias_summary_var = tk.StringVar(value="名前変更: なし")
+        self.replace_in_body_var = tk.BooleanVar(value=False)
 
-        # Speaker style & sizing
+        # Speaker style & spacing (speaker size always matches body font size)
         self.speaker_style_var = tk.StringVar(value="plate")
-        self.speaker_scale_var = tk.DoubleVar(value=1.0)
         self.speaker_gap_var = tk.DoubleVar(value=0.50)
 
         # Scale readout labels
-        self.speaker_scale_lbl_var = tk.StringVar(value="1.00x")
         self.speaker_gap_lbl_var = tk.StringVar(value="0.50")
         self.offset_y_lbl_var = tk.StringVar(value="0%")
         self.pad_x_lbl_var = tk.StringVar(value="4.5%")
@@ -103,6 +106,7 @@ class DialogueBandApp:
         self.margin_lbl_var = tk.StringVar(value="0.0%")
 
         # Fonts & Filters
+        self.title_var = tk.StringVar()
         self.only_var = tk.StringVar()
         self.font_var = tk.StringVar()
         self.font_serif_var = tk.StringVar()
@@ -176,20 +180,25 @@ class DialogueBandApp:
         f_act.columnconfigure(1, weight=1)
 
         btn_preview = ttk.Button(f_act, text="プレビュー更新", command=self.refresh_preview)
-        btn_preview.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
+        btn_preview.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 5))
         btn_dry = ttk.Button(f_act, text="チェックのみ (Dry-run)", command=lambda: self._start_worker(dry_run=True))
-        btn_dry.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
+        btn_dry.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 5))
 
-        btn_run = ttk.Button(f_act, text="一括生成を実行", command=lambda: self._start_worker(dry_run=False))
-        btn_run.grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(0, 8))
+        btn_run = ttk.Button(f_act, text="画像を一括生成", command=lambda: self._start_worker(dry_run=False))
+        btn_run.grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(0, 5))
+        btn_html = ttk.Button(f_act, text="HTMLビューア書き出し", command=self._start_html_export)
+        btn_html.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(0, 5))
+
         btn_open = ttk.Button(f_act, text="出力フォルダを開く", command=self.open_output_dir)
-        btn_open.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
+        btn_open.grid(row=2, column=0, sticky="ew", padx=(0, 4), pady=(0, 8))
+        btn_open_html = ttk.Button(f_act, text="HTMLをブラウザで開く", command=self.open_html_viewer)
+        btn_open_html.grid(row=2, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
 
-        self._action_buttons = [btn_preview, btn_dry, btn_run, btn_open]
+        self._action_buttons = [btn_preview, btn_dry, btn_run, btn_html, btn_open, btn_open_html]
 
         self.progress_bar = ttk.Progressbar(f_act, variable=self.progress_var, maximum=100.0)
-        self.progress_bar.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 4))
-        ttk.Label(f_act, textvariable=self.status_var).grid(row=3, column=0, columnspan=2, sticky="w")
+        self.progress_bar.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        ttk.Label(f_act, textvariable=self.status_var).grid(row=4, column=0, columnspan=2, sticky="w")
 
     def _build_tab_basic(self, parent):
         parent.columnconfigure(0, weight=1)
@@ -302,7 +311,7 @@ class DialogueBandApp:
     def _build_tab_speaker(self, parent):
         parent.columnconfigure(0, weight=1)
 
-        f_sp = ttk.LabelFrame(parent, text="話者名デザイン", padding=8)
+        f_sp = ttk.LabelFrame(parent, text="話者名デザイン (サイズは本文と同一)", padding=8)
         f_sp.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         f_sp.columnconfigure(1, weight=1)
 
@@ -321,21 +330,17 @@ class DialogueBandApp:
             ).grid(row=idx // 2, column=idx % 2, sticky="w", padx=(0, 12), pady=2)
 
         self._add_scale_row(
-            f_sp, 1, "話者名サイズ", self.speaker_scale_var, self.speaker_scale_lbl_var, 0.60, 2.00,
-            lambda v: f"{v:.2f}x", reset_val=1.00,
-        )
-        self._add_scale_row(
-            f_sp, 2, "本文との間隔", self.speaker_gap_var, self.speaker_gap_lbl_var, 0.15, 1.20,
+            f_sp, 1, "本文との間隔", self.speaker_gap_var, self.speaker_gap_lbl_var, 0.15, 1.20,
             lambda v: f"{v:.2f}", reset_val=0.50,
         )
 
-        f_col = ttk.LabelFrame(parent, text="カラー設定", padding=8)
+        f_col = ttk.LabelFrame(parent, text="カラー・話者名の変更", padding=8)
         f_col.grid(row=1, column=0, sticky="ew")
-        f_col.columnconfigure(1, weight=1)
+        f_col.columnconfigure(0, weight=1)
 
         self._color_swatches = {}
         row_colors = ttk.Frame(f_col)
-        row_colors.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 8))
+        row_colors.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         for idx, (title, cvar) in enumerate(
             (("帯色", self.band_color_var), ("本文", self.text_color_var), ("地の文", self.narration_color_var))
         ):
@@ -351,20 +356,39 @@ class DialogueBandApp:
             ).pack(side="left")
 
         sp_row = ttk.Frame(f_col)
-        sp_row.grid(row=1, column=0, columnspan=4, sticky="ew")
-        ttk.Label(sp_row, text="話者色").pack(side="left", padx=(0, 6))
+        sp_row.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        ttk.Label(sp_row, text="対象話者").pack(side="left", padx=(0, 6))
         self.speaker_combo = ttk.Combobox(sp_row, textvariable=self.speaker_sel_var, state="readonly", width=12)
         self.speaker_combo.pack(side="left", padx=(0, 6))
-        self.speaker_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_speaker_swatch())
+        self.speaker_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_speaker_controls())
         self.speaker_swatch = tk.Label(sp_row, width=3, relief="solid", bd=1, bg="#FF9EC7")
         self.speaker_swatch.pack(side="left", padx=(0, 6))
         ttk.Button(sp_row, text="色変更", width=6, command=self._pick_speaker_color).pack(side="left", padx=(0, 4))
-        ttk.Button(sp_row, text="解除", width=5, command=self._clear_speaker_color).pack(side="left")
+        ttk.Button(sp_row, text="色解除", width=6, command=self._clear_speaker_color).pack(side="left")
+
+        alias_row = ttk.Frame(f_col)
+        alias_row.grid(row=2, column=0, sticky="ew", pady=(0, 4))
+        ttk.Label(alias_row, text="表示名").pack(side="left", padx=(0, 14))
+        alias_entry = ttk.Entry(alias_row, textvariable=self.speaker_alias_var, width=16)
+        alias_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        alias_entry.bind("<Return>", lambda _e: self._apply_speaker_alias())
+        ttk.Button(alias_row, text="適用", width=5, command=self._apply_speaker_alias).pack(side="left", padx=(0, 4))
+        ttk.Button(alias_row, text="戻す", width=5, command=self._clear_speaker_alias).pack(side="left")
+
+        ttk.Label(f_col, textvariable=self.alias_summary_var, foreground="#666666").grid(
+            row=3, column=0, sticky="w", pady=(0, 4)
+        )
+        ttk.Checkbutton(
+            f_col,
+            text="本文中の話者名表記（彼/彼女 等）も置換する",
+            variable=self.replace_in_body_var,
+            command=self.schedule_preview,
+        ).grid(row=4, column=0, sticky="w")
 
     def _build_tab_style(self, parent):
         parent.columnconfigure(0, weight=1)
 
-        f_pos = ttk.LabelFrame(parent, text="位置・余白・行間", padding=8)
+        f_pos = ttk.LabelFrame(parent, text="位置・余白・行間 (左揃え固定)", padding=8)
         f_pos.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         f_pos.columnconfigure(1, weight=1)
 
@@ -378,24 +402,16 @@ class DialogueBandApp:
             pos_box, text="上部 (top)", value="top", variable=self.position_var, command=self.schedule_preview
         ).pack(side="left")
 
-        ttk.Label(f_pos, text="文字揃え").grid(row=1, column=0, sticky="w", pady=2)
-        aln_box = ttk.Frame(f_pos)
-        aln_box.grid(row=1, column=1, columnspan=3, sticky="w", pady=2)
-        for txt, val in (("左", "left"), ("中央", "center"), ("右", "right")):
-            ttk.Radiobutton(
-                aln_box, text=txt, value=val, variable=self.align_var, command=self.schedule_preview
-            ).pack(side="left", padx=(0, 10))
-
         self._add_scale_row(
-            f_pos, 2, "上下位置", self.text_offset_y_var, self.offset_y_lbl_var, -35.0, 35.0,
+            f_pos, 1, "上下位置", self.text_offset_y_var, self.offset_y_lbl_var, -35.0, 35.0,
             lambda v: f"{v:+.0f}%", reset_val=0.0,
         )
         self._add_scale_row(
-            f_pos, 3, "左右余白", self.pad_x_var, self.pad_x_lbl_var, 1.0, 25.0,
+            f_pos, 2, "左右余白", self.pad_x_var, self.pad_x_lbl_var, 1.0, 25.0,
             lambda v: f"{v:.1f}%", reset_val=4.5,
         )
         self._add_scale_row(
-            f_pos, 4, "行間倍率", self.line_height_var, self.line_h_lbl_var, 1.10, 2.00,
+            f_pos, 3, "行間倍率", self.line_height_var, self.line_h_lbl_var, 1.10, 2.00,
             lambda v: f"{v:.2f}", reset_val=1.45,
         )
 
@@ -451,12 +467,16 @@ class DialogueBandApp:
         f_misc.grid(row=1, column=0, sticky="ew")
         f_misc.columnconfigure(1, weight=1)
 
-        ttk.Label(f_misc, text="対象キー (任意)").grid(row=0, column=0, sticky="w", pady=4, padx=(0, 6))
-        ttk.Entry(f_misc, textvariable=self.only_var).grid(row=0, column=1, sticky="ew", pady=4)
-        ttk.Label(f_misc, text="例: 001,003", foreground="#666666").grid(row=0, column=2, sticky="w", padx=(6, 0))
+        ttk.Label(f_misc, text="作品タイトル (HTML用)").grid(row=0, column=0, sticky="w", pady=4, padx=(0, 6))
+        ttk.Entry(f_misc, textvariable=self.title_var).grid(row=0, column=1, sticky="ew", pady=4)
+        ttk.Label(f_misc, text="空欄でフォルダ名", foreground="#666666").grid(row=0, column=2, sticky="w", padx=(6, 0))
+
+        ttk.Label(f_misc, text="対象キー (任意)").grid(row=1, column=0, sticky="w", pady=4, padx=(0, 6))
+        ttk.Entry(f_misc, textvariable=self.only_var).grid(row=1, column=1, sticky="ew", pady=4)
+        ttk.Label(f_misc, text="例: 001,003", foreground="#666666").grid(row=1, column=2, sticky="w", padx=(6, 0))
 
         ttk.Button(f_misc, text="見た目・話者設定を初期値に戻す", command=self.reset_style_defaults).grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(8, 2)
+            row=2, column=0, columnspan=3, sticky="w", pady=(8, 2)
         )
 
     def _build_right_pane(self, parent):
@@ -503,7 +523,6 @@ class DialogueBandApp:
     # --- Color & Style Helpers ---
 
     def _sync_scale_labels(self):
-        self.speaker_scale_lbl_var.set(f"{self.speaker_scale_var.get():.2f}x")
         self.speaker_gap_lbl_var.set(f"{self.speaker_gap_var.get():.2f}")
         self.offset_y_lbl_var.set(f"{self.text_offset_y_var.get():+.0f}%")
         self.pad_x_lbl_var.set(f"{self.pad_x_var.get():.1f}%")
@@ -519,7 +538,7 @@ class DialogueBandApp:
                 sw.configure(bg=adb.rgb_to_hex(rgb))
             except Exception:
                 pass
-        self._sync_speaker_swatch()
+        self._sync_speaker_controls()
 
     def _pick_color_var(self, title, cvar):
         init_col = cvar.get()
@@ -530,7 +549,10 @@ class DialogueBandApp:
             self.schedule_preview(50)
 
     def _refresh_speaker_list(self, script=None):
-        names = list(self.speaker_colors.keys())
+        names = []
+        for sp in list(self.speaker_colors.keys()) + list(self.speaker_names.keys()):
+            if sp and sp not in names:
+                names.append(sp)
         if script is None:
             script_path = self.script_var.get().strip()
             if script_path and Path(script_path).is_file():
@@ -549,6 +571,16 @@ class DialogueBandApp:
             self.speaker_sel_var.set(names[0])
         elif not names:
             self.speaker_sel_var.set("")
+        self._sync_speaker_controls()
+
+    def _sync_speaker_controls(self):
+        sp = self.speaker_sel_var.get()
+        self.speaker_alias_var.set(self.speaker_names.get(sp, "") if sp else "")
+        if self.speaker_names:
+            pairs = ", ".join(f"{k}→{v}" for k, v in self.speaker_names.items())
+            self.alias_summary_var.set(f"名前変更中: {pairs}")
+        else:
+            self.alias_summary_var.set("名前変更: なし")
         self._sync_speaker_swatch()
 
     def _sync_speaker_swatch(self):
@@ -581,14 +613,32 @@ class DialogueBandApp:
             self._sync_speaker_swatch()
             self.schedule_preview(50)
 
+    def _apply_speaker_alias(self):
+        sp = self.speaker_sel_var.get().strip()
+        if not sp:
+            messagebox.showinfo("お知らせ", "台本CSVを読み込むか対象話者を選択してください。")
+            return
+        new_name = self.speaker_alias_var.get().strip()
+        if new_name and new_name != sp:
+            self.speaker_names[sp] = new_name
+        else:
+            self.speaker_names.pop(sp, None)
+        self._sync_speaker_controls()
+        self.schedule_preview(50)
+
+    def _clear_speaker_alias(self):
+        sp = self.speaker_sel_var.get().strip()
+        if sp and sp in self.speaker_names:
+            del self.speaker_names[sp]
+        self._sync_speaker_controls()
+        self.schedule_preview(50)
+
     def reset_style_defaults(self):
         self._initializing = True
         try:
             self.speaker_style_var.set("plate")
-            self.speaker_scale_var.set(1.0)
             self.speaker_gap_var.set(0.50)
             self.position_var.set("bottom")
-            self.align_var.set("left")
             self.text_offset_y_var.set(0.0)
             self.pad_x_var.set(4.5)
             self.line_height_var.set(1.45)
@@ -669,13 +719,13 @@ class DialogueBandApp:
             "font_scale": float(self.font_scale_var.get()),
             "uniform_font": bool(self.uniform_font_var.get()),
             "uniform_height": bool(self.uniform_height_var.get()),
-            "align": self.align_var.get(),
             "text_offset_y": round(float(self.text_offset_y_var.get()) / 100.0, 4),
             "pad_x": round(float(self.pad_x_var.get()) / 100.0, 4),
             "line_height": round(float(self.line_height_var.get()), 2),
             "speaker_style": self.speaker_style_var.get(),
-            "speaker_scale": round(float(self.speaker_scale_var.get()), 2),
             "speaker_gap": round(float(self.speaker_gap_var.get()), 2),
+            "speaker_names": dict(self.speaker_names),
+            "replace_speaker_in_body": bool(self.replace_in_body_var.get()),
             "format": self.format_var.get(),
             "quality": int(self.quality_var.get()),
             "band_color": self.band_color_var.get(),
@@ -731,8 +781,6 @@ class DialogueBandApp:
                 self.mode_var.set(data["mode"])
             if data.get("position") in ("bottom", "top"):
                 self.position_var.set(data["position"])
-            if data.get("align") in ("left", "center", "right"):
-                self.align_var.set(data["align"])
             if "band" in data:
                 self.band_var.set(str(data["band"]))
             if "max_lines" in data:
@@ -758,10 +806,17 @@ class DialogueBandApp:
                 self.line_height_var.set(float(data["line_height"]))
             if data.get("speaker_style") in ("plate", "bar", "bracket", "plain"):
                 self.speaker_style_var.set(data["speaker_style"])
-            if "speaker_scale" in data:
-                self.speaker_scale_var.set(float(data["speaker_scale"]))
             if "speaker_gap" in data:
                 self.speaker_gap_var.set(float(data["speaker_gap"]))
+            if "replace_speaker_in_body" in data:
+                self.replace_in_body_var.set(bool(data["replace_speaker_in_body"]))
+            raw_names = data.get("speaker_names") or {}
+            if isinstance(raw_names, dict):
+                self.speaker_names = {
+                    str(k).strip(): str(v).strip()
+                    for k, v in raw_names.items()
+                    if str(k).strip() and str(v).strip()
+                }
             if "overlay_opacity" in data:
                 self.overlay_opacity_var.set(float(data["overlay_opacity"]) * 100.0)
             if "overlay_fade" in data:
@@ -826,13 +881,13 @@ class DialogueBandApp:
             "uniform_font": bool(self.uniform_font_var.get()),
             "uniform_font_ratio": None,
             "uniform_height": bool(self.uniform_height_var.get()),
-            "align": self.align_var.get(),
             "text_offset_y": float(self.text_offset_y_var.get()) / 100.0,
             "pad_x": float(self.pad_x_var.get()) / 100.0,
             "line_height": float(self.line_height_var.get()),
             "speaker_style": self.speaker_style_var.get(),
-            "speaker_scale": float(self.speaker_scale_var.get()),
             "speaker_gap": float(self.speaker_gap_var.get()),
+            "speaker_names": dict(self.speaker_names),
+            "replace_speaker_in_body": bool(self.replace_in_body_var.get()),
             "format": self.format_var.get().lower(),
             "quality": int(self.quality_var.get()),
             "band_color": adb.parse_color(self.band_color_var.get(), adb.DEFAULT_BAND_COLOR),
@@ -866,8 +921,9 @@ class DialogueBandApp:
             round(cfg["pad_x"], 4),
             round(cfg["line_height"], 4),
             cfg["speaker_style"],
-            round(cfg["speaker_scale"], 4),
             round(cfg["speaker_gap"], 4),
+            tuple(sorted(cfg["speaker_names"].items())),
+            cfg["replace_speaker_in_body"],
             cfg["mode"],
             cfg["font"],
             cfg["serif"],
@@ -905,6 +961,7 @@ class DialogueBandApp:
         key = adb.key_of(Path(img_path).name)
         if key in script and script[key][1]:
             sp, tx = script[key]
+            disp_sp, _ = adb.apply_speaker_aliases(sp, tx, cfg)
             pil_im, meta = adb.render_image(img_path, sp, tx, cfg)
             flags = []
             if cfg["uniform_font"] and bottleneck:
@@ -916,7 +973,7 @@ class DialogueBandApp:
             flag_str = f" [{' / '.join(flags)}]" if flags else ""
             info = (
                 f"{pil_im.width}x{pil_im.height} | キー:{key} | "
-                f"話者:{sp or '(地の文)'} | 本文:{meta['size']}px{flag_str}"
+                f"話者:{disp_sp or '(地の文)'} | 本文:{meta['size']}px{flag_str}"
             )
             return pil_im, info
 
@@ -1172,6 +1229,83 @@ class DialogueBandApp:
         finally:
             self.root.after(0, self._set_running, False)
 
+    def _start_html_export(self):
+        if self._running:
+            return
+
+        src_str = self.src_var.get().strip()
+        script_str = self.script_var.get().strip()
+        out_str = self.out_var.get().strip()
+
+        if not src_str or not Path(src_str).is_dir():
+            messagebox.showerror("入力エラー", "有効な「画像フォルダ」を選択してください。")
+            return
+        if not script_str or not Path(script_str).is_file():
+            messagebox.showerror("入力エラー", "有効な「台本CSV」を選択してください。")
+            return
+        if not out_str:
+            messagebox.showerror("入力エラー", "「出力フォルダ」を指定してください。")
+            return
+
+        try:
+            cfg = self.build_runtime_cfg()
+        except Exception as exc:
+            messagebox.showerror("設定エラー", str(exc))
+            return
+
+        only_raw = self.only_var.get().strip()
+        only_keys = {k.strip() for k in only_raw.split(",") if k.strip()} if only_raw else None
+        title = self.title_var.get().strip() or None
+
+        self._save_state()
+        self._clear_log()
+        self.progress_var.set(0.0)
+        self.status_var.set("HTMLビューア書き出し中...")
+        self._set_running(True)
+
+        t = threading.Thread(
+            target=self._run_html_worker,
+            args=(Path(src_str), Path(script_str), Path(out_str), cfg, title, only_keys),
+            daemon=True,
+        )
+        t.start()
+
+    def _run_html_worker(self, src, script_path, out, cfg, title, only_keys):
+        try:
+            def on_progress(idx, total, fname):
+                self._ui_progress(idx / max(1, total) * 100.0, f"画像準備中 ({idx}/{total}): {fname}")
+
+            res = export_html_viewer.export_html_viewer(
+                src, script_path, out, cfg, title=title, only_keys=only_keys, progress_cb=on_progress
+            )
+            for msg in res["warnings"]:
+                self._ui_log(msg)
+            self._ui_log(
+                f"done (html-viewer): steps={res['steps']} images={res['images']} index={res['index_path']}"
+            )
+            self._ui_progress(
+                100.0, f"HTML書き出し完了（シーン:{res['steps']} / 画像:{res['images']}）"
+            )
+        except Exception as exc:
+            self._ui_log(f"ERROR: {exc}")
+            self.root.after(0, self.status_var.set, f"エラー: {exc}")
+            self.root.after(0, messagebox.showerror, "書き出しエラー", str(exc))
+        finally:
+            self.root.after(0, self._set_running, False)
+
+    def open_html_viewer(self):
+        out_str = self.out_var.get().strip()
+        if not out_str:
+            messagebox.showinfo("お知らせ", "出力フォルダが指定されていません。")
+            return
+        index_path = Path(out_str) / "index.html"
+        if not index_path.is_file():
+            messagebox.showinfo(
+                "お知らせ", f"index.html が見つかりません。先に「HTMLビューア書き出し」を実行してください。\n{index_path}"
+            )
+            return
+        webbrowser.open(index_path.resolve().as_uri())
+
     def open_output_dir(self):
         out_str = self.out_var.get().strip()
         if not out_str:
@@ -1203,7 +1337,6 @@ class DialogueBandApp:
                 for key, var in (
                     ("mode", self.mode_var),
                     ("position", self.position_var),
-                    ("align", self.align_var),
                     ("speaker_style", self.speaker_style_var),
                     ("band", self.band_var),
                     ("max_lines", self.max_lines_var),
@@ -1215,6 +1348,7 @@ class DialogueBandApp:
                     ("text_color", self.text_color_var),
                     ("narration_color", self.narration_color_var),
                     ("only", self.only_var),
+                    ("title", self.title_var),
                     ("font", self.font_var),
                     ("font_serif", self.font_serif_var),
                     ("font_bold", self.font_bold_var),
@@ -1225,7 +1359,6 @@ class DialogueBandApp:
                     ("text_offset_y_pct", self.text_offset_y_var),
                     ("pad_x_pct", self.pad_x_var),
                     ("line_height", self.line_height_var),
-                    ("speaker_scale", self.speaker_scale_var),
                     ("speaker_gap", self.speaker_gap_var),
                     ("overlay_opacity_pct", self.overlay_opacity_var),
                     ("overlay_fade_pct", self.overlay_fade_var),
@@ -1239,6 +1372,10 @@ class DialogueBandApp:
                     self.auto_colors_var.set(bool(st["auto_colors"]))
                 if "uniform_height" in st:
                     self.uniform_height_var.set(bool(st["uniform_height"]))
+                if "replace_speaker_in_body" in st:
+                    self.replace_in_body_var.set(bool(st["replace_speaker_in_body"]))
+                if isinstance(st.get("speaker_names"), dict):
+                    self.speaker_names = dict(st["speaker_names"])
                 if isinstance(st.get("speaker_colors"), dict):
                     self.speaker_colors = dict(st["speaker_colors"])
                 self._sync_scale_labels()
@@ -1276,7 +1413,6 @@ class DialogueBandApp:
                 "config": self.config_var.get(),
                 "mode": self.mode_var.get(),
                 "position": self.position_var.get(),
-                "align": self.align_var.get(),
                 "band": self.band_var.get(),
                 "max_lines": self.max_lines_var.get(),
                 "font_scale": self.font_scale_var.get(),
@@ -1289,8 +1425,9 @@ class DialogueBandApp:
                 "pad_x_pct": self.pad_x_var.get(),
                 "line_height": self.line_height_var.get(),
                 "speaker_style": self.speaker_style_var.get(),
-                "speaker_scale": self.speaker_scale_var.get(),
                 "speaker_gap": self.speaker_gap_var.get(),
+                "speaker_names": dict(self.speaker_names),
+                "replace_speaker_in_body": self.replace_in_body_var.get(),
                 "overlay_opacity_pct": self.overlay_opacity_var.get(),
                 "overlay_fade_pct": self.overlay_fade_var.get(),
                 "overlay_margin_pct": self.overlay_margin_var.get(),
@@ -1300,6 +1437,7 @@ class DialogueBandApp:
                 "narration_color": self.narration_color_var.get(),
                 "speaker_colors": dict(self.speaker_colors),
                 "only": self.only_var.get(),
+                "title": self.title_var.get(),
                 "font": self.font_var.get(),
                 "font_serif": self.font_serif_var.get(),
                 "font_bold": self.font_bold_var.get(),

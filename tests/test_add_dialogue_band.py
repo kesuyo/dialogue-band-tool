@@ -323,7 +323,6 @@ class TestEndToEndRendering(unittest.TestCase):
                 "max_lines": 2,
                 "font_scale": 1.0,
                 "uniform_font_ratio": None,
-                "align": "center",
                 "text_offset_y": -0.20,
                 "pad_x": 0.12,
                 "line_height": 1.70,
@@ -364,8 +363,6 @@ class TestEndToEndRendering(unittest.TestCase):
                     "overlay",
                     "--position",
                     "top",
-                    "--align",
-                    "right",
                     "--text-offset-y",
                     "0.15",
                     "--pad-x",
@@ -391,7 +388,7 @@ class TestEndToEndRendering(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertTrue((out / "001_test.png").exists())
 
-    def test_speaker_styles_scale_and_gap(self):
+    def test_speaker_styles_match_body_size_and_aliases(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = root / "src"
@@ -400,7 +397,7 @@ class TestEndToEndRendering(unittest.TestCase):
             p1 = src / "001_sample.png"
             Image.new("RGB", (832, 1216), (90, 110, 140)).save(p1)
             csv_path = root / "script.csv"
-            csv_path.write_text("001,彼女,短いセリフです\n", encoding="utf-8")
+            csv_path.write_text("001,彼女,彼も{{彼女}}も一緒だよ\n", encoding="utf-8")
 
             fonts = adb.resolve_fonts()
             dummy = Image.new("RGB", (1, 1))
@@ -408,12 +405,13 @@ class TestEndToEndRendering(unittest.TestCase):
             base_cfg = {
                 "mode": "overlay",
                 "position": "bottom",
-                "band": 0.24,
+                "band": 0.20,
                 "max_lines": 2,
-                "font_scale": 0.70,
-                "speaker_scale": 1.0,
+                "font_scale": 0.65,
                 "speaker_style": "plate",
                 "speaker_gap": 0.50,
+                "speaker_names": {"彼女": "さくら"},
+                "replace_speaker_in_body": True,
                 "uniform_font_ratio": None,
                 "pad_x": 0.045,
                 "line_height": 1.45,
@@ -424,24 +422,29 @@ class TestEndToEndRendering(unittest.TestCase):
                 "overlay_fade": 0.30,
                 "overlay_margin": 0.0,
                 "text_outline": 2,
-                "align": "left",
                 "text_offset_y": 0.0,
                 "colors": {"彼女": (255, 158, 199)},
                 **fonts,
             }
-            # speaker_scale is independent of body font_scale
-            l_normal = adb._compute_layout(832, 1216, "彼女", "短いセリフ", base_cfg, draw)
-            cfg_big_body = dict(base_cfg, font_scale=1.30)
-            l_big_body = adb._compute_layout(832, 1216, "彼女", "短いセリフ", cfg_big_body, draw)
-            self.assertEqual(l_normal["name_size"], l_big_body["name_size"])
+            # Speaker size always matches body font size across font_scale & shrinkage
+            l_small = adb._compute_layout(832, 1216, "彼女", "短いセリフ", base_cfg, draw)
+            self.assertEqual(l_small["name_size"], l_small["fit_meta"]["size"])
+            self.assertEqual(l_small["eff_speaker"], "さくら")
 
-            cfg_big_sp = dict(base_cfg, speaker_scale=1.40)
-            l_big_sp = adb._compute_layout(832, 1216, "彼女", "短いセリフ", cfg_big_sp, draw)
-            self.assertGreater(l_big_sp["name_size"], l_normal["name_size"])
+            cfg_big = dict(base_cfg, font_scale=1.20)
+            l_big = adb._compute_layout(832, 1216, "彼女", "短いセリフ", cfg_big, draw)
+            self.assertEqual(l_big["name_size"], l_big["fit_meta"]["size"])
+            self.assertGreater(l_big["name_size"], l_small["name_size"])
+
+            # Alias safety: renaming '彼' alone must not corrupt '彼女' in body text
+            alias_cfg = {"speaker_names": {"彼": "タロウ"}, "replace_speaker_in_body": True}
+            sp_out, tx_out = adb.apply_speaker_aliases("彼", "彼女と彼と{{彼}}", alias_cfg)
+            self.assertEqual(sp_out, "タロウ")
+            self.assertEqual(tx_out, "彼女とタロウとタロウ")
 
             for mode in ("extend", "overlay"):
                 for style in ("plate", "bar", "bracket", "plain"):
-                    c = dict(base_cfg, mode=mode, speaker_style=style, speaker_scale=1.2, speaker_gap=0.4)
+                    c = dict(base_cfg, mode=mode, speaker_style=style, speaker_gap=0.4)
                     im, meta = adb.render_image(p1, "彼女", "テストセリフ", c)
                     self.assertFalse(meta["overflow"])
                     self.assertEqual(im.width, 832)
@@ -454,11 +457,12 @@ class TestEndToEndRendering(unittest.TestCase):
                     "--mode",
                     "overlay",
                     "--speaker-style",
-                    "plate",
-                    "--speaker-scale",
-                    "1.25",
+                    "bar",
                     "--speaker-gap",
                     "0.45",
+                    "--speaker-name",
+                    "彼女=さくら",
+                    "--replace-speaker-in-body",
                 ]
             )
             self.assertEqual(rc, 0)
@@ -488,13 +492,13 @@ class TestGuiApp(unittest.TestCase):
             self.assertEqual(im_ov.size, (832, 1216))
             self.assertIn("832x1216", info_ov)
 
-            # v1.2 & v1.3 controls & config roundtrip
+            # v1.2-v1.5 controls, speaker rename, & config roundtrip
             app.uniform_font_var.set(True)
             app.speaker_style_var.set("bracket")
-            app.speaker_scale_var.set(1.35)
             app.speaker_gap_var.set(0.65)
+            app.speaker_names = {"彼女": "さくら"}
+            app.replace_in_body_var.set(True)
             app.position_var.set("top")
-            app.align_var.set("center")
             app.overlay_opacity_var.set(50.0)
             app.overlay_fade_var.set(45.0)
             app.overlay_margin_var.set(3.0)
@@ -503,9 +507,10 @@ class TestGuiApp(unittest.TestCase):
             app.line_height_var.set(1.6)
             app.text_outline_var.set("2")
 
-            im_v12, info_v12 = app.render_preview_pil(sample_img)
-            self.assertEqual(im_v12.size, (832, 1216))
-            self.assertIn("統一:", info_v12)
+            im_v15, info_v15 = app.render_preview_pil(sample_img)
+            self.assertEqual(im_v15.size, (832, 1216))
+            self.assertIn("統一:", info_v15)
+            self.assertIn("さくら", info_v15)
 
             with tempfile.TemporaryDirectory() as td:
                 cfg_out = Path(td) / "saved.json"
@@ -518,14 +523,219 @@ class TestGuiApp(unittest.TestCase):
                 self.assertTrue(app.load_config_file(str(cfg_out), silent=True))
                 self.assertTrue(app.uniform_font_var.get())
                 self.assertEqual(app.speaker_style_var.get(), "bracket")
-                self.assertAlmostEqual(app.speaker_scale_var.get(), 1.35, places=2)
+                self.assertEqual(app.speaker_names, {"彼女": "さくら"})
+                self.assertTrue(app.replace_in_body_var.get())
                 self.assertAlmostEqual(app.speaker_gap_var.get(), 0.65, places=2)
                 self.assertEqual(app.position_var.get(), "top")
-                self.assertEqual(app.align_var.get(), "center")
                 self.assertAlmostEqual(app.overlay_opacity_var.get(), 50.0, places=1)
                 self.assertEqual(app.text_outline_var.get(), "2")
+
+            app.title_var.set("GUIテスト作品")
+            self.assertEqual(app.title_var.get(), "GUIテスト作品")
+            with tempfile.TemporaryDirectory() as td_html:
+                import export_html_viewer
+
+                html_res = export_html_viewer.export_html_viewer(
+                    ROOT / "sample_input",
+                    ROOT / "sample_script.csv",
+                    Path(td_html),
+                    app.build_runtime_cfg(),
+                    title=app.title_var.get(),
+                )
+                self.assertEqual(html_res["steps"], 3)
+                self.assertTrue((Path(td_html) / "index.html").is_file())
         finally:
             root.destroy()
+
+
+class TestHtmlViewerExport(unittest.TestCase):
+    def test_load_script_sequence_allows_multiple_lines_per_image(self):
+        import export_html_viewer
+
+        with tempfile.TemporaryDirectory() as td:
+            csv_p = Path(td) / "seq.csv"
+            csv_p.write_text(
+                "\ufeff"
+                "id,speaker,line\n"
+                "# comment\n"
+                "\n"
+                "001,彼女,最初の一言\n"
+                '001,彼,"二言目\\n改行"\n'
+                "002,,地の文テスト\n",
+                encoding="utf-8",
+            )
+            entries, warnings = export_html_viewer.load_script_sequence(csv_p)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(entries[0], {"key": "001", "speaker": "彼女", "text": "最初の一言"})
+        self.assertEqual(entries[1], {"key": "001", "speaker": "彼", "text": "二言目\n改行"})
+        self.assertEqual(entries[2], {"key": "002", "speaker": "", "text": "地の文テスト"})
+
+    def test_export_html_viewer_structure_and_offline_features(self):
+        import export_html_viewer
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "src"
+            out = root / "viewer"
+            src.mkdir()
+            Image.new("RGB", (600, 800), (40, 50, 70)).save(src / "001_a.png")
+            Image.new("RGB", (600, 800), (70, 50, 40)).save(src / "002_cg.png")
+            Image.new("RGB", (600, 800), (50, 70, 50)).save(src / "003_end.png")
+
+            csv_p = root / "script.csv"
+            csv_p.write_text(
+                "001,彼女,おはよう\n"
+                "001,彼,おはよう、{{彼女}}\n"
+                "003,,そして二人は歩き出した。\n",
+                encoding="utf-8",
+            )
+            cfg = {
+                "mode": "overlay",
+                "position": "bottom",
+                "overlay_opacity": 0.45,
+                "overlay_fade": 0.35,
+                "overlay_margin": 0.0,
+                "text_outline": 2,
+                "band_color": (12, 12, 14),
+                "text_color": (255, 255, 255),
+                "narration_color": (234, 237, 245),
+                "speaker_style": "plate",
+                "speaker_gap": 0.5,
+                "speaker_names": {"彼女": "さくら"},
+                "replace_speaker_in_body": False,
+                "font_scale": 1.0,
+                "line_height": 1.45,
+                "pad_x": 0.045,
+                "format": "keep",
+                "quality": 92,
+                "auto_speaker_colors": False,
+                "colors": {"彼女": (255, 158, 199), "彼": (150, 200, 255)},
+            }
+
+            res = export_html_viewer.export_html_viewer(src, csv_p, out, cfg, title="サンプル物語")
+            self.assertEqual(res["images"], 3)
+            self.assertEqual(res["steps"], 4)
+            self.assertTrue((out / "index.html").is_file())
+            self.assertTrue((out / "scenario.js").is_file())
+            self.assertTrue((out / "images" / "001_a.png").is_file())
+            self.assertTrue((out / "images" / "002_cg.png").is_file())
+            self.assertTrue((out / "images" / "003_end.png").is_file())
+
+            js_raw = (out / "scenario.js").read_text(encoding="utf-8")
+            prefix = "window.__DIALOGUE_VIEWER_DATA__ = "
+            self.assertTrue(js_raw.startswith(prefix))
+            payload = json.loads(js_raw[len(prefix) :].rstrip().rstrip(";"))
+
+            self.assertEqual(payload["version"], "1.6")
+            self.assertEqual(payload["title"], "サンプル物語")
+            self.assertEqual(payload["displayTitle"], "サンプル物語")
+            self.assertEqual(payload["speakers"], ["さくら", "彼"])
+            self.assertEqual(payload["speakerColors"]["さくら"], "#FF9EC7")
+            self.assertAlmostEqual(payload["defaults"]["overlayOpacity"], 0.45, places=2)
+            self.assertEqual(payload["defaults"]["speakerStyle"], "plate")
+            self.assertNotIn("align", payload["defaults"])
+            self.assertNotIn("speakerScale", payload["defaults"])
+
+            steps = payload["steps"]
+            self.assertEqual([s["key"] for s in steps], ["001", "001", "002", "003"])
+            self.assertEqual(steps[0]["speaker"], "さくら")
+            self.assertEqual(steps[1]["text"], "おはよう、さくら")
+            self.assertEqual(steps[2]["speaker"], "")
+            self.assertEqual(steps[2]["text"], "")
+
+            html_raw = (out / "index.html").read_text(encoding="utf-8")
+            self.assertNotIn("fetch(", html_raw)
+            for token in (
+                "btnToggleText",
+                ">セリフを表示</button>",
+                "modalNames",
+                "chkReplaceInBody",
+                "modalLog",
+                "btnAuto",
+                "modalThumbs",
+                "rngOpacity",
+                "selMode",
+                "topbar-visible",
+                "btnMenuToggle",
+                "chkPinTopbar",
+                "btnFullscreen",
+                "modalEnd",
+                "settings-backdrop",
+                "touchstart",
+                "0.20",
+                'min="1" max="100"',
+                "opacityLevel: 50",
+                "fontLevel: 50",
+                "SETTINGS_VERSION = 3",
+                "tb-nav",
+                "tb-actions",
+                "btnCloseTopbar",
+                "cols-3",
+                "--font-px",
+                "100dvh",
+            ):
+                self.assertIn(token, html_raw)
+            for removed in (
+                "selSpeakerStyle",
+                "rngSpeakerScale",
+                "selAlign",
+                "settings-hint",
+                "rngFade",
+                "rngOutline",
+                "selLayout",
+                "プレースホルダ",
+                "(overlay)",
+                "(extend)",
+                "閉じる (Esc)",
+                ">セリフを表示 (H)<",
+                "テキストなし画像",
+                "overflow-x: auto",
+            ):
+                self.assertNotIn(removed, html_raw)
+
+            # When --title is omitted, <title> falls back to folder name while displayTitle stays empty
+            out_notitle = root / "viewer_notitle"
+            export_html_viewer.export_html_viewer(src, csv_p, out_notitle, cfg, title=None)
+            js_nt = (out_notitle / "scenario.js").read_text(encoding="utf-8")
+            payload_nt = json.loads(js_nt[len(prefix) :].rstrip().rstrip(";"))
+            self.assertEqual(payload_nt["title"], "src")
+            self.assertEqual(payload_nt["displayTitle"], "")
+
+    def test_cli_export_html_entrypoints(self):
+        import export_html_viewer
+
+        with tempfile.TemporaryDirectory() as td:
+            out1 = Path(td) / "v1"
+            out2 = Path(td) / "v2"
+            rc1 = adb.main(
+                [
+                    str(ROOT / "sample_input"),
+                    str(ROOT / "sample_script.csv"),
+                    str(out1),
+                    "--config",
+                    str(ROOT / "sample_config.json"),
+                    "--export-html",
+                    "--title",
+                    "CLIテスト",
+                ]
+            )
+            self.assertEqual(rc1, 0)
+            self.assertTrue((out1 / "index.html").is_file())
+            self.assertTrue((out1 / "scenario.js").is_file())
+
+            rc2 = export_html_viewer.main(
+                [
+                    str(ROOT / "sample_input"),
+                    str(ROOT / "sample_script.csv"),
+                    str(out2),
+                    "--title",
+                    "単体CLI",
+                ]
+            )
+            self.assertEqual(rc2, 0)
+            self.assertTrue((out2 / "index.html").is_file())
 
 
 if __name__ == "__main__":

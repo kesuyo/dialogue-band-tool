@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Dialogue band batch composer v1.3.
+"""Dialogue band batch composer v1.5.
 
 Usage:
     python3 add_dialogue_band.py SRC_DIR SCRIPT.csv OUT_DIR [options]
@@ -571,83 +571,183 @@ def _plate_fill_rgb(band_color, is_overlay):
     return (max(0, r - 18), max(0, g - 18), max(0, b - 16))
 
 
-def _compute_layout(w, h, speaker, text, cfg, draw):
-    band_h = max(1, int(round(w * cfg["band"])))
-    if cfg.get("mode") == "overlay":
-        band_h = min(h, band_h)
-    scale = float(cfg.get("font_scale", 1.0))
-    speaker_scale = max(0.5, min(2.5, float(cfg.get("speaker_scale", 1.0))))
-    speaker_style = str(cfg.get("speaker_style", "plate")).lower()
-    if speaker_style not in ("plate", "bar", "bracket", "plain"):
-        speaker_style = "plate"
+def parse_speaker_name_args(items):
+    """Parse repeatable 'ORIG=NEW' speaker rename pairs into a dict."""
+    out = {}
+    for raw in items or ():
+        if "=" not in raw:
+            raise ValueError(f"Invalid --speaker-name format (expected ORIG=NEW): {raw!r}")
+        orig, new = raw.split("=", 1)
+        orig = orig.strip()
+        new = new.strip()
+        if orig:
+            out[orig] = new
+    return out
 
-    pad_x = max(0.01, min(0.35, float(cfg.get("pad_x", 0.045))))
-    pad = max(4, min(max(4, (w - 20) // 2), int(round(w * pad_x))))
-    v_pad = max(4, int(round(band_h * 0.10)))
-    name_size = max(14, int(round(w * 0.042 * speaker_scale)))
-    min_size = max(10, int(round(w * 0.024 * scale)))
-    uniform_ratio = cfg.get("uniform_font_ratio")
-    if uniform_ratio is not None:
-        start_size = max(min_size, int(w * float(uniform_ratio) + 1e-6))
+
+def apply_speaker_aliases(speaker, text, cfg):
+    """Apply configured speaker display-name aliases and optional body substitutions."""
+    aliases = cfg.get("speaker_names") or {}
+    sp_clean = (speaker or "").strip()
+    disp_speaker = aliases.get(sp_clean, "").strip() or sp_clean
+    out_text = text or ""
+
+    if aliases and out_text:
+        ordered_keys = sorted((k for k in aliases if k), key=len, reverse=True)
+        for k in ordered_keys:
+            rep = aliases[k].strip() or k
+            out_text = out_text.replace("{{" + k + "}}", rep).replace("{" + k + "}", rep)
+        if cfg.get("replace_speaker_in_body"):
+            active = [k for k in ordered_keys if aliases[k].strip()]
+            if active:
+                protected = set(active)
+                if "\u5f7c" in protected:
+                    protected.add("\u5f7c\u5973")
+                pattern_keys = sorted(protected, key=len, reverse=True)
+                pat = re.compile("|".join(re.escape(k) for k in pattern_keys))
+                out_text = pat.sub(
+                    lambda m: aliases.get(m.group(0), "").strip() or m.group(0), out_text
+                )
+    return disp_speaker, out_text
+
+
+def _measure_speaker_metrics(draw, eff_speaker, size, speaker_style, gap_mult, bold_path):
+    display_speaker = eff_speaker
+    if speaker_style == "bracket" and not (
+        eff_speaker.startswith("\u3010") and eff_speaker.endswith("\u3011")
+    ):
+        display_speaker = f"\u3010{eff_speaker}\u3011"
+    f_name = ImageFont.truetype(bold_path, size)
+    nb = draw.textbbox((0, 0), display_speaker, font=f_name)
+    name_h = max(nb[3] - nb[1], int(round(size * 0.85)))
+    if speaker_style == "plate":
+        plate_pad_y = max(4, int(round(size * 0.22)))
+        plate_pad_x = max(8, int(round(size * 0.42)))
+        speaker_box_h = name_h + plate_pad_y * 2
     else:
-        start_size = max(14, int(round(w * 0.053 * scale)))
-    step = max(1, int(round(w * 0.0024)))
-    line_h_mult = max(1.0, float(cfg.get("line_height", 1.45)))
-
-    name_block_h = 0
-    f_name = None
-    nb = (0, 0, 0, 0)
-    name_h = 0
-    name_gap = 0
-    plate_pad_x = 0
-    plate_pad_y = 0
-    speaker_box_h = 0
-    display_speaker = speaker
-    if speaker:
-        if speaker_style == "bracket" and not (speaker.startswith("\u3010") and speaker.endswith("\u3011")):
-            display_speaker = f"\u3010{speaker}\u3011"
-        f_name = ImageFont.truetype(cfg["bold"], name_size)
-        nb = draw.textbbox((0, 0), display_speaker, font=f_name)
-        name_h = max(nb[3] - nb[1], int(round(name_size * 0.85)))
-        if speaker_style == "plate":
-            plate_pad_y = max(4, int(round(name_size * 0.22)))
-            plate_pad_x = max(8, int(round(name_size * 0.42)))
-            speaker_box_h = name_h + plate_pad_y * 2
-        else:
-            speaker_box_h = name_h
-        gap_mult = max(0.15, min(1.50, float(cfg.get("speaker_gap", 0.50))))
-        name_gap = max(4, int(round(name_size * gap_mult)))
-        name_block_h = speaker_box_h + name_gap
-
-    avail_h = max(1, band_h - v_pad * 2 - name_block_h)
-    body_path = cfg["font"] if speaker else cfg["serif"]
-    font, lines, line_h, fit_meta = fit_text(
-        draw,
-        text,
-        max(1, w - pad * 2),
-        avail_h,
-        body_path,
-        cfg["max_lines"],
-        start_size=start_size,
-        min_size=min_size,
-        step=step,
-        line_height_mult=line_h_mult,
-    )
+        plate_pad_y = 0
+        plate_pad_x = 0
+        speaker_box_h = name_h
+    name_gap = max(4, int(round(size * gap_mult)))
+    name_block_h = speaker_box_h + name_gap
     return {
-        "band_h": band_h,
-        "pad": pad,
-        "v_pad": v_pad,
-        "name_size": name_size,
+        "name_size": size,
         "f_name": f_name,
         "nb": nb,
         "name_h": name_h,
         "name_gap": name_gap,
         "name_block_h": name_block_h,
         "display_speaker": display_speaker,
-        "speaker_style": speaker_style,
         "plate_pad_x": plate_pad_x,
         "plate_pad_y": plate_pad_y,
         "speaker_box_h": speaker_box_h,
+    }
+
+
+def _compute_layout(w, h, speaker, text, cfg, draw):
+    band_h = max(1, int(round(w * cfg["band"])))
+    if cfg.get("mode") == "overlay":
+        band_h = min(h, band_h)
+    eff_speaker, eff_text = apply_speaker_aliases(speaker, text, cfg)
+
+    scale = float(cfg.get("font_scale", 1.0))
+    speaker_style = str(cfg.get("speaker_style", "plate")).lower()
+    if speaker_style not in ("plate", "bar", "bracket", "plain"):
+        speaker_style = "plate"
+    gap_mult = max(0.15, min(1.50, float(cfg.get("speaker_gap", 0.50))))
+
+    pad_x = max(0.01, min(0.35, float(cfg.get("pad_x", 0.045))))
+    pad = max(4, min(max(4, (w - 20) // 2), int(round(w * pad_x))))
+    v_pad = max(4, int(round(band_h * 0.10)))
+    min_size = max(10, int(round(w * 0.024 * scale)))
+    uniform_ratio = cfg.get("uniform_font_ratio")
+    if uniform_ratio is not None:
+        start_size = max(min_size, int(w * float(uniform_ratio) + 1e-6))
+    else:
+        start_size = max(14, int(round(w * 0.053 * scale)))
+    start_size = max(min_size, start_size)
+    step = max(1, int(round(w * 0.0024)))
+    line_h_mult = max(1.0, float(cfg.get("line_height", 1.45)))
+    max_body_w = max(1, w - pad * 2)
+
+    if not eff_speaker:
+        avail_h = max(1, band_h - v_pad * 2)
+        font, lines, line_h, fit_meta = fit_text(
+            draw,
+            eff_text,
+            max_body_w,
+            avail_h,
+            cfg["serif"],
+            cfg["max_lines"],
+            start_size=start_size,
+            min_size=min_size,
+            step=step,
+            line_height_mult=line_h_mult,
+        )
+        sp_metrics = {
+            "name_size": 0,
+            "f_name": None,
+            "nb": (0, 0, 0, 0),
+            "name_h": 0,
+            "name_gap": 0,
+            "name_block_h": 0,
+            "display_speaker": "",
+            "plate_pad_x": 0,
+            "plate_pad_y": 0,
+            "speaker_box_h": 0,
+        }
+    else:
+        sizes = list(range(start_size, min_size - 1, -step))
+        if sizes[-1] != min_size:
+            sizes.append(min_size)
+
+        chosen = None
+        for size in sizes:
+            sp_m = _measure_speaker_metrics(draw, eff_speaker, size, speaker_style, gap_mult, cfg["bold"])
+            avail_h = max(1, band_h - v_pad * 2 - sp_m["name_block_h"])
+            font = ImageFont.truetype(cfg["font"], size)
+            lines = _wrap_all_paragraphs(draw, eff_text, font, max_body_w, cfg["max_lines"])
+            line_h = max(1, int(round(size * line_h_mult)))
+            all_fit_w = all(draw.textlength(ln, font=font) <= max_body_w for ln in lines)
+            if len(lines) <= cfg["max_lines"] and line_h * len(lines) <= avail_h and all_fit_w:
+                chosen = (
+                    sp_m,
+                    font,
+                    lines,
+                    line_h,
+                    {"size": size, "shrunk": size < start_size, "overflow": False},
+                )
+                break
+
+        if chosen is not None:
+            sp_metrics, font, lines, line_h, fit_meta = chosen
+        else:
+            sp_metrics = _measure_speaker_metrics(
+                draw, eff_speaker, min_size, speaker_style, gap_mult, cfg["bold"]
+            )
+            avail_h = max(1, band_h - v_pad * 2 - sp_metrics["name_block_h"])
+            font = ImageFont.truetype(cfg["font"], min_size)
+            raw_lines = _wrap_all_paragraphs(draw, eff_text, font, max_body_w, cfg["max_lines"])
+            line_h = max(1, int(round(min_size * line_h_mult)))
+            cap = max(1, min(cfg["max_lines"], max(1, avail_h // line_h)))
+            lines = raw_lines[:cap]
+            overflow = len(raw_lines) > cap or any(
+                draw.textlength(ln, font=font) > max_body_w for ln in lines
+            )
+            fit_meta = {
+                "size": min_size,
+                "shrunk": min_size < start_size,
+                "overflow": overflow,
+            }
+
+    return {
+        "band_h": band_h,
+        "pad": pad,
+        "v_pad": v_pad,
+        "eff_speaker": eff_speaker,
+        "eff_text": eff_text,
+        "speaker_style": speaker_style,
+        **sp_metrics,
         "font": font,
         "lines": lines,
         "line_h": line_h,
@@ -740,15 +840,18 @@ def render_image(img_path, speaker, text, cfg):
 
     is_overlay = cfg["mode"] == "overlay"
     shadow_color = (0, 0, 0, 190)
-    align = cfg.get("align", "left")
-    text_area_w = max(1, w - pad * 2)
 
     outline_lvl = max(0, int(cfg.get("text_outline", 0)))
     body_stroke = max(1, int(round(outline_lvl * w / 832.0))) if outline_lvl > 0 else 0
     name_stroke = body_stroke
+    eff_speaker = layout["eff_speaker"]
 
-    if speaker:
-        speaker_color = cfg["colors"].get(speaker, MAIN_SPEAKER_COLOR)
+    if eff_speaker:
+        speaker_color = (
+            cfg["colors"].get(speaker)
+            or cfg["colors"].get(eff_speaker)
+            or MAIN_SPEAKER_COLOR
+        )
         sp_outline = _outline_rgb(speaker_color)
         disp_sp = layout["display_speaker"]
         sp_style = layout["speaker_style"]
@@ -765,15 +868,8 @@ def render_image(img_path, speaker, text, cfg):
             plate_w = bar_left_off + accent_w + accent_gap + sp_w + plate_pad_x
             plate_h = layout["speaker_box_h"]
 
-            if align == "center":
-                plate_x = pad + (text_area_w - plate_w) / 2
-            elif align == "right":
-                plate_x = pad + text_area_w - plate_w
-            else:
-                plate_x = pad
-
-            px0 = int(round(plate_x))
-            px1 = int(round(plate_x + plate_w))
+            px0 = pad
+            px1 = int(round(pad + plate_w))
             plate_box = [px0, block_top, px1, block_top + plate_h]
             radius = min(max(4, int(round(layout["name_size"] * 0.22))), max(1, plate_h // 2))
             border_w = max(1, w // 600)
@@ -839,13 +935,7 @@ def render_image(img_path, speaker, text, cfg):
         elif sp_style == "bar":
             accent_w = max(4, int(round(w / 150)))
             accent_gap = max(8, int(round(layout["name_size"] * 0.32)))
-            total_sp_w = accent_w + accent_gap + sp_w
-            if align == "center":
-                bar_x = int(round(pad + (text_area_w - total_sp_w) / 2))
-            elif align == "right":
-                bar_x = int(round(pad + text_area_w - total_sp_w))
-            else:
-                bar_x = pad
+            bar_x = pad
 
             bar_box = [bar_x, block_top, bar_x + accent_w - 1, block_top + layout["name_h"]]
             bar_rad = min(max(1, accent_w // 2), max(1, layout["name_h"] // 2))
@@ -887,12 +977,7 @@ def render_image(img_path, speaker, text, cfg):
 
         else:
             # 'bracket' or 'plain'
-            if align == "center":
-                name_x = pad + (text_area_w - sp_w) / 2
-            elif align == "right":
-                name_x = pad + (text_area_w - sp_w)
-            else:
-                name_x = pad
+            name_x = pad
             name_y = block_top + max(0, (layout["name_h"] - glyph_sp_h) // 2) - layout["nb"][1]
             if is_overlay:
                 draw_target.text(
@@ -925,17 +1010,11 @@ def render_image(img_path, speaker, text, cfg):
     else:
         body_y = block_top - ref_b[1]
 
-    body_rgb = cfg["text_color"] if speaker else cfg["narration_color"]
+    body_rgb = cfg["text_color"] if eff_speaker else cfg["narration_color"]
     body_outline = _outline_rgb(body_rgb)
     b_off = max(1, body_size // 22)
     for ln in lines:
-        ln_w = draw_target.textlength(ln, font=font)
-        if align == "center":
-            ln_x = pad + (text_area_w - ln_w) / 2
-        elif align == "right":
-            ln_x = pad + (text_area_w - ln_w)
-        else:
-            ln_x = pad
+        ln_x = pad
 
         if is_overlay:
             draw_target.text(
@@ -1045,6 +1124,21 @@ def build_cfg(args, file_cfg):
         for sp, col in raw_colors.items():
             colors[sp] = parse_color(col, MAIN_SPEAKER_COLOR)
 
+    speaker_names = {}
+    raw_names = file_cfg.get("speaker_names") or {}
+    if isinstance(raw_names, dict):
+        for k, v in raw_names.items():
+            ks = str(k).strip()
+            vs = str(v).strip()
+            if ks and vs:
+                speaker_names[ks] = vs
+    cli_names = parse_speaker_name_args(getattr(args, "speaker_name", None))
+    for k, v in cli_names.items():
+        if v:
+            speaker_names[k] = v
+        else:
+            speaker_names.pop(k, None)
+
     return {
         "mode": pick_opt(args.mode, "mode", "extend"),
         "band": float(pick_opt(args.band, "band", 0.24)),
@@ -1065,13 +1159,16 @@ def build_cfg(args, file_cfg):
         "overlay_margin": float(pick_opt(args.overlay_margin, "overlay_margin", 0.0)),
         "text_outline": int(pick_opt(args.text_outline, "text_outline", 0)),
         "position": str(pick_opt(args.position, "position", "bottom")).lower(),
-        "align": str(pick_opt(args.align, "align", "left")).lower(),
         "text_offset_y": float(pick_opt(args.text_offset_y, "text_offset_y", 0.0)),
         "pad_x": float(pick_opt(args.pad_x, "pad_x", 0.045)),
         "line_height": float(pick_opt(args.line_height, "line_height", 1.45)),
-        "speaker_scale": float(pick_opt(args.speaker_scale, "speaker_scale", 1.0)),
         "speaker_style": str(pick_opt(args.speaker_style, "speaker_style", "plate")).lower(),
         "speaker_gap": float(pick_opt(args.speaker_gap, "speaker_gap", 0.50)),
+        "speaker_names": speaker_names,
+        "replace_speaker_in_body": bool(
+            getattr(args, "replace_speaker_in_body", False)
+            or file_cfg.get("replace_speaker_in_body", False)
+        ),
         "auto_speaker_colors": bool(args.speaker_colors or file_cfg.get("auto_speaker_colors", False)),
         "colors": colors,
         **fonts,
@@ -1079,7 +1176,7 @@ def build_cfg(args, file_cfg):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.3")
+    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.5")
     ap.add_argument("src")
     ap.add_argument("script")
     ap.add_argument("out")
@@ -1090,15 +1187,15 @@ def main(argv=None):
     ap.add_argument("--font-serif", default=None)
     ap.add_argument("--font-bold", default=None)
     ap.add_argument("--font-scale", type=float, default=None)
-    ap.add_argument("--speaker-scale", type=float, default=None)
     ap.add_argument("--speaker-style", choices=["plate", "bar", "bracket", "plain"], default=None)
     ap.add_argument("--speaker-gap", type=float, default=None)
+    ap.add_argument("--speaker-name", action="append", default=None, help="Rename speaker ORIG=NEW")
+    ap.add_argument("--replace-speaker-in-body", action="store_true")
     ap.add_argument("--speaker-colors", action="store_true")
     ap.add_argument("--config", default=None)
     ap.add_argument("--uniform-height", action="store_true")
     ap.add_argument("--uniform-font", action="store_true")
     ap.add_argument("--position", choices=["bottom", "top"], default=None)
-    ap.add_argument("--align", choices=["left", "center", "right"], default=None)
     ap.add_argument("--text-offset-y", type=float, default=None)
     ap.add_argument("--pad-x", type=float, default=None)
     ap.add_argument("--line-height", type=float, default=None)
@@ -1111,6 +1208,8 @@ def main(argv=None):
     ap.add_argument("--narration-color", default=None)
     ap.add_argument("--format", choices=["keep", "png", "jpg", "jpeg", "webp"], default=None)
     ap.add_argument("--quality", type=int, default=None)
+    ap.add_argument("--export-html", action="store_true")
+    ap.add_argument("--title", default=None, help="Story title for --export-html")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--strict", action="store_true")
     ap.add_argument("--only", default=None, help="Comma-separated keys to process (e.g. 001,003)")
@@ -1123,6 +1222,31 @@ def main(argv=None):
     file_cfg = load_config(a.config) if a.config else {}
     cfg = build_cfg(a, file_cfg)
 
+    only_keys = None
+    if a.only:
+        only_keys = {k.strip() for k in a.only.split(",") if k.strip()}
+
+    if a.export_html:
+        import export_html_viewer
+
+        if a.dry_run:
+            entries, seq_warnings = export_html_viewer.load_script_sequence(a.script)
+            for msg in seq_warnings:
+                print("warning:", msg)
+            print(f"dry-run (html-viewer): entries={len(entries)} out={out}")
+            return 0
+        res = export_html_viewer.export_html_viewer(
+            src, Path(a.script), out, cfg, title=a.title, only_keys=only_keys
+        )
+        for msg in res["warnings"]:
+            print(msg)
+        print(
+            f"done (html-viewer): steps={res['steps']} images={res['images']} index={res['index_path']}"
+        )
+        if a.strict and any("no image for script key" in w or "skipped" in w for w in res["warnings"]):
+            return 1
+        return 0
+
     script, csv_warnings = load_script(a.script)
     for msg in csv_warnings:
         print("warning:", msg)
@@ -1132,10 +1256,6 @@ def main(argv=None):
             sp = script[key][0]
             if sp and sp not in cfg["colors"]:
                 cfg["colors"][sp] = PALETTE[len(cfg["colors"]) % len(PALETTE)]
-
-    only_keys = None
-    if a.only:
-        only_keys = {k.strip() for k in a.only.split(",") if k.strip()}
 
     if not a.dry_run:
         out.mkdir(parents=True, exist_ok=True)
