@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Offline HTML novel viewer exporter for Dialogue Band Batch Composer v1.6."""
+"""Offline HTML novel viewer exporter for Dialogue Band Batch Composer v1.7."""
 
 import argparse
 import csv
@@ -99,12 +99,37 @@ def _ordered_speakers(steps, cfg=None):
     return priority
 
 
-def export_html_viewer(src_dir, script_path, out_dir, cfg, title=None, only_keys=None, progress_cb=None):
-    """Export clean images, `scenario.js`, and `index.html` into `out_dir`."""
+def _file_sha256(path):
+    """Compute SHA-256 hex digest of a file to detect identical variant images."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def export_html_viewer(
+    src_dir,
+    script_path,
+    out_dir,
+    cfg,
+    title=None,
+    only_keys=None,
+    progress_cb=None,
+    sfx_off_dir=None,
+    default_sfx=True,
+    sfx_label="効果音",
+):
+    """Export clean images, optional SFX-off variants, `scenario.js`, and `index.html` into `out_dir`."""
     src = Path(src_dir)
     out = Path(out_dir)
     if not src.is_dir():
         raise FileNotFoundError(f"source folder not found: {src}")
+
+    sfx_off_clean = str(sfx_off_dir).strip() if sfx_off_dir is not None else ""
+    alt_src = Path(sfx_off_clean) if sfx_off_clean else None
+    if alt_src is not None and not alt_src.is_dir():
+        raise FileNotFoundError(f"sfx-off folder not found: {alt_src}")
 
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -127,13 +152,69 @@ def export_html_viewer(src_dir, script_path, out_dir, cfg, title=None, only_keys
         images_by_key[key] = p
         ordered_images.append((key, p))
 
+    alt_images_by_key = {}
+    if alt_src is not None:
+        all_alt = [
+            p for p in sorted(alt_src.iterdir()) if p.is_file() and p.suffix.lower() in adb.SUPPORTED_EXTS
+        ]
+        if only_keys is not None:
+            all_alt = [p for p in all_alt if adb.key_of(p.name) in only_keys]
+        for ap in all_alt:
+            alt_key = adb.key_of(ap.name)
+            if alt_key in alt_images_by_key:
+                warnings.append(f"duplicate sfx-off image key '{alt_key}' ({ap.name}); skipping")
+                continue
+            alt_images_by_key[alt_key] = ap
+            if alt_key not in images_by_key:
+                warnings.append(
+                    f"warning: extra sfx-off image without main image: '{ap.name}' (key '{alt_key}')"
+                )
+
     exported_rel = {}
-    total_imgs = max(1, len(ordered_images))
-    for idx, (key, p) in enumerate(ordered_images, 1):
-        saved_path = _export_single_image(p, images_dir, cfg)
-        exported_rel[key] = f"images/{saved_path.name}"
-        if progress_cb:
-            progress_cb(idx, total_imgs, p.name)
+    exported_alt_rel = {}
+    if alt_src is not None:
+        sfx_dir = images_dir / "sfx"
+        nosfx_dir = images_dir / "nosfx"
+        sfx_dir.mkdir(parents=True, exist_ok=True)
+        nosfx_dir.mkdir(parents=True, exist_ok=True)
+
+        matched_keys = []
+        for key, main_p in ordered_images:
+            if key in alt_images_by_key:
+                matched_keys.append(key)
+            else:
+                warnings.append(
+                    f"warning: sfx-off image missing for key '{key}' ({main_p.name}); falling back to main image"
+                )
+
+        total_imgs = max(1, len(ordered_images) + len(matched_keys))
+        done_cnt = 0
+        for key, main_p in ordered_images:
+            saved_main = _export_single_image(main_p, sfx_dir, cfg)
+            exported_rel[key] = f"images/sfx/{saved_main.name}"
+            done_cnt += 1
+            if progress_cb:
+                progress_cb(done_cnt, total_imgs, main_p.name)
+
+            if key in alt_images_by_key:
+                alt_p = alt_images_by_key[key]
+                if _file_sha256(main_p) == _file_sha256(alt_p):
+                    exported_alt_rel[key] = exported_rel[key]
+                else:
+                    saved_alt = _export_single_image(alt_p, nosfx_dir, cfg)
+                    exported_alt_rel[key] = f"images/nosfx/{saved_alt.name}"
+                done_cnt += 1
+                if progress_cb:
+                    progress_cb(done_cnt, total_imgs, alt_p.name)
+    else:
+        total_imgs = max(1, len(ordered_images))
+        for idx, (key, p) in enumerate(ordered_images, 1):
+            saved_path = _export_single_image(p, images_dir, cfg)
+            exported_rel[key] = f"images/{saved_path.name}"
+            if progress_cb:
+                progress_cb(idx, total_imgs, p.name)
+
+    has_alt_images = len(exported_alt_rel) > 0
 
     steps = []
     used_keys = set()
@@ -150,14 +231,15 @@ def export_html_viewer(src_dir, script_path, out_dir, cfg, title=None, only_keys
         disp_sp, disp_tx = adb.apply_speaker_aliases(raw_sp, ent["text"], cfg)
         if disp_sp and disp_sp not in raw_speaker_by_disp:
             raw_speaker_by_disp[disp_sp] = raw_sp
-        steps.append(
-            {
-                "key": key,
-                "image": exported_rel[key],
-                "speaker": disp_sp,
-                "text": disp_tx,
-            }
-        )
+        step_obj = {
+            "key": key,
+            "image": exported_rel[key],
+            "speaker": disp_sp,
+            "text": disp_tx,
+        }
+        if has_alt_images:
+            step_obj["imageAlt"] = exported_alt_rel.get(key, exported_rel[key])
+        steps.append(step_obj)
 
     # Interleave unreferenced images as clean CG-only steps in sorted-key order
     for key, p in ordered_images:
@@ -170,6 +252,8 @@ def export_html_viewer(src_dir, script_path, out_dir, cfg, title=None, only_keys
             "speaker": "",
             "text": "",
         }
+        if has_alt_images:
+            cg_step["imageAlt"] = exported_alt_rel.get(key, exported_rel[key])
         insert_at = len(steps)
         for i, st in enumerate(steps):
             if st["key"] > key:
@@ -218,10 +302,15 @@ def export_html_viewer(src_dir, script_path, out_dir, cfg, title=None, only_keys
     }
 
     data = {
-        "version": "1.6",
+        "version": "1.7",
         "storyId": story_id,
         "title": viewer_title,
         "displayTitle": explicit_title,
+        "hasAltImages": has_alt_images,
+        "altConfig": {
+            "label": (sfx_label or "").strip() or "効果音",
+            "defaultOn": bool(default_sfx),
+        },
         "speakers": speakers,
         "speakerColors": speaker_colors,
         "defaults": defaults,
@@ -239,6 +328,8 @@ def export_html_viewer(src_dir, script_path, out_dir, cfg, title=None, only_keys
     return {
         "steps": len(steps),
         "images": len(ordered_images),
+        "alt_images": len(exported_alt_rel),
+        "has_alt_images": has_alt_images,
         "warnings": warnings,
         "index_path": index_path,
     }
@@ -446,13 +537,18 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     white-space: nowrap;
   }
 
-  /* Restore dialogue button when hidden */
-  .restore-btn {
+  /* Restore & SFX dock when dialogue is hidden */
+  .restore-dock {
     position: fixed;
     right: 16px;
-    bottom: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom, 16px));
     z-index: 45;
     display: none;
+    align-items: center;
+    gap: 8px;
+  }
+  body.dialogue-hidden .restore-dock { display: inline-flex; }
+  .restore-btn {
     appearance: none;
     border: 1px solid rgba(255, 255, 255, 0.22);
     background: rgba(16, 17, 22, 0.55);
@@ -462,11 +558,19 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     padding: 7px 14px;
     font-size: 12px;
     cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.18s ease, background 0.18s ease;
+    opacity: 0.65;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: opacity 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   }
   .restore-btn:hover { opacity: 1; background: rgba(16, 17, 22, 0.88); }
-  body.dialogue-hidden .restore-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .restore-btn.active {
+    background: rgba(255, 158, 199, 0.28);
+    border-color: rgba(255, 158, 199, 0.72);
+    color: #ffd9e9;
+    opacity: 0.9;
+  }
 
   /* Bottom thin progress line */
   .progress-track {
@@ -888,6 +992,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   <span class="tb-sep tb-main-sep"></span>
   <div class="tb-actions" id="tbActions">
     <button class="tb-btn" id="btnToggleText" type="button" title="セリフ ON/OFF (H)">セリフ ON</button>
+    <button class="tb-btn" id="btnToggleSfx" type="button" title="効果音 ON/OFF (E)">効果音 ON</button>
     <button class="tb-btn" id="btnAuto" type="button" title="オート再生 (A)">オート</button>
     <button class="tb-btn" id="btnLog" type="button" title="バックログ (L)">ログ</button>
     <button class="tb-btn" id="btnThumbs" type="button" title="サムネ一覧 (G)">サムネ一覧</button>
@@ -898,7 +1003,10 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 </div>
 
 <button class="menu-toggle-btn" id="btnMenuToggle" type="button" title="操作バーを表示 (M)">≡</button>
-<button class="restore-btn" id="btnRestoreText" type="button" title="セリフを表示 (H)">セリフを表示</button>
+<div class="restore-dock" id="restoreDock">
+  <button class="restore-btn" id="btnRestoreSfx" type="button" title="効果音 ON/OFF (E)">効果音 ON</button>
+  <button class="restore-btn" id="btnRestoreText" type="button" title="セリフを表示 (H)">セリフを表示</button>
+</div>
 
 <main class="stage" id="stage">
   <div class="stage-frame" id="stageFrame">
@@ -939,8 +1047,8 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     </div>
     <div class="modal-body">
       <div class="thumb-tabs">
-        <button class="tb-btn active" id="tabThumbScenes" type="button">シーン一覧（全ページ）</button>
-        <button class="tb-btn" id="tabThumbImages" type="button">画像一覧（CG別）</button>
+        <button class="tb-btn active" id="tabThumbImages" type="button">画像一覧（CG別）</button>
+        <button class="tb-btn" id="tabThumbScenes" type="button">シーン一覧（全ページ）</button>
       </div>
       <div class="thumb-grid" id="thumbGrid"></div>
     </div>
@@ -1051,11 +1159,16 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     return;
   }
 
-  const SETTINGS_VERSION = 3;
+  const SETTINGS_VERSION = 4;
   const LS_PREFIX = "dv_" + (DATA.storyId || "story") + "_";
   const KEY_IDX = LS_PREFIX + "index";
   const KEY_NAMES = LS_PREFIX + "names";
   const KEY_SETTINGS = LS_PREFIX + "settings";
+
+  const hasAltImages = Boolean(DATA.hasAltImages);
+  const altCfg = DATA.altConfig || {};
+  const sfxLabel = (typeof altCfg.label === "string" && altCfg.label.trim()) ? altCfg.label.trim() : "効果音";
+  const defaultSfxOn = altCfg.defaultOn !== false;
 
   const def = DATA.defaults || {};
   const baseOpacity = typeof def.overlayOpacity === "number" ? def.overlayOpacity : 0.76;
@@ -1078,6 +1191,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     autoSec: 3.5,
     replaceInBody: false,
     dialogueVisible: true,
+    sfxVisible: defaultSfxOn,
     pinTopbar: false
   };
 
@@ -1111,7 +1225,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   let typeTimer = null;
   let fullDisplayedText = "";
   let isTyping = false;
-  let thumbMode = "scenes";
+  let thumbMode = "images";
 
   // Top bar auto-hide state
   let topbarManualOpen = false;
@@ -1129,6 +1243,8 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   const elBtnPrev = document.getElementById("btnPrev");
   const elBtnNext = document.getElementById("btnNext");
   const elBtnToggleText = document.getElementById("btnToggleText");
+  const elBtnToggleSfx = document.getElementById("btnToggleSfx");
+  const elBtnRestoreSfx = document.getElementById("btnRestoreSfx");
   const elBtnRestoreText = document.getElementById("btnRestoreText");
   const elBtnAuto = document.getElementById("btnAuto");
   const elBtnLog = document.getElementById("btnLog");
@@ -1291,6 +1407,50 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   window.addEventListener("resize", syncGeometry);
   elMainImg.addEventListener("load", syncGeometry);
 
+  const preloadedUrls = new Set();
+  function getStepImage(step, useSfx) {
+    if (!step) return "";
+    const wantSfx = typeof useSfx === "boolean" ? useSfx : settings.sfxVisible;
+    if (hasAltImages && !wantSfx && step.imageAlt) return step.imageAlt;
+    return step.image;
+  }
+  function getStepAltImage(step) {
+    if (!step || !hasAltImages || !step.imageAlt || step.imageAlt === step.image) return null;
+    return settings.sfxVisible ? step.imageAlt : step.image;
+  }
+  function preloadImageUrl(url) {
+    if (!url || preloadedUrls.has(url)) return;
+    preloadedUrls.add(url);
+    const im = new Image();
+    im.src = url;
+  }
+  function syncActionGridCols() {
+    const visCount = Array.from(elTbActions.querySelectorAll(".tb-btn")).filter(
+      b => b.style.display !== "none"
+    ).length;
+    elTbActions.classList.toggle("cols-3", visCount <= 6);
+  }
+  function updateSfxButtons() {
+    if (!hasAltImages) {
+      elBtnToggleSfx.style.display = "none";
+      elBtnRestoreSfx.style.display = "none";
+      syncActionGridCols();
+      return;
+    }
+    elBtnToggleSfx.style.display = "";
+    elBtnRestoreSfx.style.display = "";
+    const on = Boolean(settings.sfxVisible);
+    const label = `${sfxLabel} ${on ? "ON" : "OFF"}`;
+    const tip = `${sfxLabel} ON/OFF (E)`;
+    elBtnToggleSfx.textContent = label;
+    elBtnToggleSfx.title = tip;
+    elBtnToggleSfx.classList.toggle("active", !on);
+    elBtnRestoreSfx.textContent = label;
+    elBtnRestoreSfx.title = tip;
+    elBtnRestoreSfx.classList.toggle("active", !on);
+    syncActionGridCols();
+  }
+
   function applyThemeStyles() {
     const rootStyle = document.documentElement.style;
     const [r, g, b] = hexToRgb(def.bandColor || "#0C0C0E");
@@ -1331,6 +1491,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     document.body.classList.toggle("topbar-pinned", Boolean(settings.pinTopbar));
     elBtnToggleText.textContent = settings.dialogueVisible ? "セリフ ON" : "セリフ OFF";
     elBtnToggleText.classList.toggle("active", !settings.dialogueVisible);
+    updateSfxButtons();
 
     if (settings.pinTopbar && settings.dialogueVisible) {
       showTopbar(0);
@@ -1365,13 +1526,16 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     stopTypewriter();
     if (DATA.steps.length === 0) return;
     const step = DATA.steps[currentIndex];
+    const curImgSrc = getStepImage(step);
 
-    if (elMainImg.getAttribute("src") !== step.image) {
-      elMainImg.setAttribute("src", step.image);
+    if (elMainImg.getAttribute("src") !== curImgSrc) {
+      elMainImg.setAttribute("src", curImgSrc);
     }
+    preloadImageUrl(getStepAltImage(step));
     if (currentIndex + 1 < DATA.steps.length) {
-      const preload = new Image();
-      preload.src = DATA.steps[currentIndex + 1].image;
+      const nextStep = DATA.steps[currentIndex + 1];
+      preloadImageUrl(getStepImage(nextStep));
+      preloadImageUrl(getStepAltImage(nextStep));
     }
 
     elPage.textContent = `${currentIndex + 1} / ${DATA.steps.length}`;
@@ -1496,6 +1660,28 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     }
   }
 
+  function toggleSfx() {
+    if (!hasAltImages) return;
+    settings.sfxVisible = !settings.sfxVisible;
+    applyThemeStyles();
+    const step = DATA.steps[currentIndex];
+    if (step) {
+      const targetSrc = getStepImage(step);
+      if (targetSrc && elMainImg.getAttribute("src") !== targetSrc) {
+        elMainImg.setAttribute("src", targetSrc);
+      }
+      preloadImageUrl(getStepAltImage(step));
+    }
+    if (currentIndex + 1 < DATA.steps.length) {
+      const nextStep = DATA.steps[currentIndex + 1];
+      preloadImageUrl(getStepImage(nextStep));
+      preloadImageUrl(getStepAltImage(nextStep));
+    }
+    if (document.getElementById("modalThumbs").classList.contains("open")) {
+      renderThumbGrid();
+    }
+  }
+
   // Modals
   const MODAL_IDS = ["modalLog", "modalThumbs", "modalNames", "modalSettings", "modalEnd"];
   function isAnyModalOpen() {
@@ -1588,7 +1774,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     if (thumbMode === "scenes") {
       items = DATA.steps.map((st, idx) => ({
         stepIndex: idx,
-        image: st.image,
+        image: getStepImage(st),
         badge: `#${idx + 1}`,
         speakerRaw: st.speaker,
         speakerDisp: getDisplaySpeaker(st.speaker),
@@ -1598,16 +1784,17 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     } else {
       const seenImg = new Map();
       DATA.steps.forEach((st, idx) => {
-        if (!seenImg.has(st.image)) {
-          seenImg.set(st.image, {
+        const groupKey = st.key || st.image;
+        if (!seenImg.has(groupKey)) {
+          seenImg.set(groupKey, {
             stepIndex: idx,
-            image: st.image,
+            image: getStepImage(st),
             count: 0,
             snippet: formatBodyText(st.text),
             hasCurrent: false
           });
         }
-        const entry = seenImg.get(st.image);
+        const entry = seenImg.get(groupKey);
         entry.count += 1;
         if (idx === currentIndex) entry.hasCurrent = true;
       });
@@ -1819,14 +2006,16 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   }
   function updateFullscreenBtn() {
     const supported = isFullscreenSupported();
-    elTbActions.classList.toggle("cols-3", !supported);
     if (!supported) {
       elBtnFullscreen.style.display = "none";
+      syncActionGridCols();
       return;
     }
+    elBtnFullscreen.style.display = "";
     const active = Boolean(getFullscreenEl());
     elBtnFullscreen.classList.toggle("active", active);
     elBtnFullscreen.textContent = active ? "全画面解除" : "全画面";
+    syncActionGridCols();
     setTimeout(syncGeometry, 60);
   }
   function toggleFullscreen() {
@@ -1876,6 +2065,8 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   elBtnPrev.addEventListener("click", e => { e.stopPropagation(); stepBack(); });
   elBtnNext.addEventListener("click", e => { e.stopPropagation(); advance(true); });
   elBtnToggleText.addEventListener("click", e => { e.stopPropagation(); toggleDialogue(); });
+  elBtnToggleSfx.addEventListener("click", e => { e.stopPropagation(); toggleSfx(); });
+  elBtnRestoreSfx.addEventListener("click", e => { e.stopPropagation(); toggleSfx(); });
   elBtnRestoreText.addEventListener("click", e => { e.stopPropagation(); toggleDialogue(); });
   elBtnAuto.addEventListener("click", e => { e.stopPropagation(); setAutoPlay(!autoPlaying); });
   elBtnLog.addEventListener("click", e => { e.stopPropagation(); openBacklog(); });
@@ -1995,6 +2186,9 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     } else if (k === "h") {
       e.preventDefault();
       toggleDialogue();
+    } else if (k === "e") {
+      e.preventDefault();
+      toggleSfx();
     } else if (k === "m") {
       e.preventDefault();
       if (!settings.dialogueVisible) return;
@@ -2038,12 +2232,15 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Offline HTML novel viewer exporter v1.6")
+    ap = argparse.ArgumentParser(description="Offline HTML novel viewer exporter v1.7")
     ap.add_argument("src")
     ap.add_argument("script")
     ap.add_argument("out")
     ap.add_argument("--config", default=None)
     ap.add_argument("--title", default=None)
+    ap.add_argument("--sfx-off-dir", default=None, help="Optional folder of SFX-off variant images")
+    ap.add_argument("--default-sfx", choices=["on", "off"], default="on", help="Initial SFX visibility")
+    ap.add_argument("--sfx-label", default="効果音", help="Toggle button label for variant switching")
     ap.add_argument("--format", choices=["keep", "png", "jpg", "jpeg", "webp"], default=None)
     ap.add_argument("--quality", type=int, default=None)
     ap.add_argument("--speaker-name", action="append", default=None, help="Rename speaker ORIG=NEW")
@@ -2092,11 +2289,21 @@ def main(argv=None):
     cfg = adb.build_cfg(a, file_cfg)
     only_keys = {k.strip() for k in a.only.split(",") if k.strip()} if a.only else None
 
-    res = export_html_viewer(src, Path(a.script), Path(a.out), cfg, title=a.title, only_keys=only_keys)
+    res = export_html_viewer(
+        src,
+        Path(a.script),
+        Path(a.out),
+        cfg,
+        title=a.title,
+        only_keys=only_keys,
+        sfx_off_dir=a.sfx_off_dir,
+        default_sfx=(a.default_sfx != "off"),
+        sfx_label=a.sfx_label,
+    )
     for msg in res["warnings"]:
         print(msg)
     print(
-        f"done (html-viewer): steps={res['steps']} images={res['images']} index={res['index_path']}"
+        f"done (html-viewer): steps={res['steps']} images={res['images']} alt={res['alt_images']} index={res['index_path']}"
     )
     return 0
 

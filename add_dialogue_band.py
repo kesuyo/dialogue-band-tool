@@ -1176,7 +1176,7 @@ def build_cfg(args, file_cfg):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.5")
+    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.7")
     ap.add_argument("src")
     ap.add_argument("script")
     ap.add_argument("out")
@@ -1210,6 +1210,9 @@ def main(argv=None):
     ap.add_argument("--quality", type=int, default=None)
     ap.add_argument("--export-html", action="store_true")
     ap.add_argument("--title", default=None, help="Story title for --export-html")
+    ap.add_argument("--sfx-off-dir", default=None, help="SFX-off variant image folder for --export-html")
+    ap.add_argument("--default-sfx", choices=["on", "off"], default="on", help="Initial SFX visibility for --export-html")
+    ap.add_argument("--sfx-label", default="効果音", help="Toggle button label for --export-html")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--strict", action="store_true")
     ap.add_argument("--only", default=None, help="Comma-separated keys to process (e.g. 001,003)")
@@ -1236,14 +1239,25 @@ def main(argv=None):
             print(f"dry-run (html-viewer): entries={len(entries)} out={out}")
             return 0
         res = export_html_viewer.export_html_viewer(
-            src, Path(a.script), out, cfg, title=a.title, only_keys=only_keys
+            src,
+            Path(a.script),
+            out,
+            cfg,
+            title=a.title,
+            only_keys=only_keys,
+            sfx_off_dir=a.sfx_off_dir,
+            default_sfx=(a.default_sfx != "off"),
+            sfx_label=a.sfx_label,
         )
         for msg in res["warnings"]:
             print(msg)
         print(
-            f"done (html-viewer): steps={res['steps']} images={res['images']} index={res['index_path']}"
+            f"done (html-viewer): steps={res['steps']} images={res['images']} alt={res['alt_images']} index={res['index_path']}"
         )
-        if a.strict and any("no image for script key" in w or "skipped" in w for w in res["warnings"]):
+        if a.strict and any(
+            "no image for script key" in w or "skipped" in w or "sfx-off image missing" in w
+            for w in res["warnings"]
+        ):
             return 1
         return 0
 

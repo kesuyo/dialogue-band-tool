@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Desktop GUI for Dialogue Band Batch Composer v1.5."""
+"""Desktop GUI for Dialogue Band Batch Composer v1.7."""
 
 import json
 import os
@@ -34,7 +34,7 @@ class DialogueBandApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("帯テキスト一括合成ツール v1.5")
+        self.root.title("帯テキスト一括合成ツール v1.7")
         self.root.geometry("1160x800")
         self.root.minsize(960, 680)
 
@@ -59,9 +59,11 @@ class DialogueBandApp:
 
     def _init_vars(self):
         self.src_var = tk.StringVar()
+        self.sfx_off_var = tk.StringVar()
         self.script_var = tk.StringVar()
         self.out_var = tk.StringVar()
         self.config_var = tk.StringVar()
+        self.default_sfx_var = tk.BooleanVar(value=True)
 
         # Basic settings
         self.mode_var = tk.StringVar(value="extend")
@@ -208,11 +210,19 @@ class DialogueBandApp:
         f_paths.columnconfigure(1, weight=1)
 
         self._add_path_row(f_paths, 0, "画像フォルダ", self.src_var, self._browse_src)
-        self._add_path_row(f_paths, 1, "台本CSV", self.script_var, self._browse_script)
-        self._add_path_row(f_paths, 2, "出力フォルダ", self.out_var, self._browse_out)
         self._add_path_row(
             f_paths,
-            3,
+            1,
+            "効果音なし画像",
+            self.sfx_off_var,
+            self._browse_sfx_off,
+            extra_btns=[("ｸﾘｱ", lambda: self.sfx_off_var.set(""))],
+        )
+        self._add_path_row(f_paths, 2, "台本CSV", self.script_var, self._browse_script)
+        self._add_path_row(f_paths, 3, "出力フォルダ", self.out_var, self._browse_out)
+        self._add_path_row(
+            f_paths,
+            4,
             "設定JSON",
             self.config_var,
             self._browse_config,
@@ -469,14 +479,20 @@ class DialogueBandApp:
 
         ttk.Label(f_misc, text="作品タイトル (HTML用)").grid(row=0, column=0, sticky="w", pady=4, padx=(0, 6))
         ttk.Entry(f_misc, textvariable=self.title_var).grid(row=0, column=1, sticky="ew", pady=4)
-        ttk.Label(f_misc, text="空欄でフォルダ名", foreground="#666666").grid(row=0, column=2, sticky="w", padx=(6, 0))
+        ttk.Label(f_misc, text="空欄でバー非表示", foreground="#666666").grid(row=0, column=2, sticky="w", padx=(6, 0))
 
-        ttk.Label(f_misc, text="対象キー (任意)").grid(row=1, column=0, sticky="w", pady=4, padx=(0, 6))
-        ttk.Entry(f_misc, textvariable=self.only_var).grid(row=1, column=1, sticky="ew", pady=4)
-        ttk.Label(f_misc, text="例: 001,003", foreground="#666666").grid(row=1, column=2, sticky="w", padx=(6, 0))
+        ttk.Checkbutton(
+            f_misc,
+            text="HTML初期状態: 効果音あり (ON)",
+            variable=self.default_sfx_var,
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=3)
+
+        ttk.Label(f_misc, text="対象キー (任意)").grid(row=2, column=0, sticky="w", pady=4, padx=(0, 6))
+        ttk.Entry(f_misc, textvariable=self.only_var).grid(row=2, column=1, sticky="ew", pady=4)
+        ttk.Label(f_misc, text="例: 001,003", foreground="#666666").grid(row=2, column=2, sticky="w", padx=(6, 0))
 
         ttk.Button(f_misc, text="見た目・話者設定を初期値に戻す", command=self.reset_style_defaults).grid(
-            row=2, column=0, columnspan=3, sticky="w", pady=(8, 2)
+            row=3, column=0, columnspan=3, sticky="w", pady=(8, 2)
         )
 
     def _build_right_pane(self, parent):
@@ -666,6 +682,12 @@ class DialogueBandApp:
         if d:
             self.src_var.set(d)
             self._refresh_image_list()
+
+    def _browse_sfx_off(self):
+        initial = self.sfx_off_var.get().strip() or self.src_var.get().strip() or str(BASE_DIR)
+        d = filedialog.askdirectory(initialdir=initial, title="効果音なし画像フォルダを選択 (任意)")
+        if d:
+            self.sfx_off_var.set(d)
 
     def _browse_script(self):
         p = filedialog.askopenfilename(
@@ -1234,11 +1256,15 @@ class DialogueBandApp:
             return
 
         src_str = self.src_var.get().strip()
+        sfx_off_str = self.sfx_off_var.get().strip()
         script_str = self.script_var.get().strip()
         out_str = self.out_var.get().strip()
 
         if not src_str or not Path(src_str).is_dir():
             messagebox.showerror("入力エラー", "有効な「画像フォルダ」を選択してください。")
+            return
+        if sfx_off_str and not Path(sfx_off_str).is_dir():
+            messagebox.showerror("入力エラー", "「効果音なし画像」に有効なフォルダを指定してください（使わない場合は空欄）。")
             return
         if not script_str or not Path(script_str).is_file():
             messagebox.showerror("入力エラー", "有効な「台本CSV」を選択してください。")
@@ -1256,6 +1282,7 @@ class DialogueBandApp:
         only_raw = self.only_var.get().strip()
         only_keys = {k.strip() for k in only_raw.split(",") if k.strip()} if only_raw else None
         title = self.title_var.get().strip() or None
+        default_sfx = bool(self.default_sfx_var.get())
 
         self._save_state()
         self._clear_log()
@@ -1265,26 +1292,35 @@ class DialogueBandApp:
 
         t = threading.Thread(
             target=self._run_html_worker,
-            args=(Path(src_str), Path(script_str), Path(out_str), cfg, title, only_keys),
+            args=(Path(src_str), Path(script_str), Path(out_str), cfg, title, only_keys, sfx_off_str or None, default_sfx),
             daemon=True,
         )
         t.start()
 
-    def _run_html_worker(self, src, script_path, out, cfg, title, only_keys):
+    def _run_html_worker(self, src, script_path, out, cfg, title, only_keys, sfx_off_dir=None, default_sfx=True):
         try:
             def on_progress(idx, total, fname):
                 self._ui_progress(idx / max(1, total) * 100.0, f"画像準備中 ({idx}/{total}): {fname}")
 
             res = export_html_viewer.export_html_viewer(
-                src, script_path, out, cfg, title=title, only_keys=only_keys, progress_cb=on_progress
+                src,
+                script_path,
+                out,
+                cfg,
+                title=title,
+                only_keys=only_keys,
+                progress_cb=on_progress,
+                sfx_off_dir=sfx_off_dir,
+                default_sfx=default_sfx,
             )
             for msg in res["warnings"]:
                 self._ui_log(msg)
             self._ui_log(
-                f"done (html-viewer): steps={res['steps']} images={res['images']} index={res['index_path']}"
+                f"done (html-viewer): steps={res['steps']} images={res['images']} alt={res['alt_images']} index={res['index_path']}"
             )
+            alt_note = f" / 差分:{res['alt_images']}" if res.get("has_alt_images") else ""
             self._ui_progress(
-                100.0, f"HTML書き出し完了（シーン:{res['steps']} / 画像:{res['images']}）"
+                100.0, f"HTML書き出し完了（シーン:{res['steps']} / 画像:{res['images']}{alt_note}）"
             )
         except Exception as exc:
             self._ui_log(f"ERROR: {exc}")
@@ -1329,6 +1365,7 @@ class DialogueBandApp:
             try:
                 st = json.loads(STATE_PATH.read_text(encoding="utf-8"))
                 self.src_var.set(st.get("src", ""))
+                self.sfx_off_var.set(st.get("sfx_off", ""))
                 self.script_var.set(st.get("script", ""))
                 self.out_var.set(st.get("out", ""))
                 self.config_var.set(st.get("config", ""))
@@ -1374,6 +1411,8 @@ class DialogueBandApp:
                     self.uniform_height_var.set(bool(st["uniform_height"]))
                 if "replace_speaker_in_body" in st:
                     self.replace_in_body_var.set(bool(st["replace_speaker_in_body"]))
+                if "default_sfx" in st:
+                    self.default_sfx_var.set(bool(st["default_sfx"]))
                 if isinstance(st.get("speaker_names"), dict):
                     self.speaker_names = dict(st["speaker_names"])
                 if isinstance(st.get("speaker_colors"), dict):
@@ -1408,9 +1447,11 @@ class DialogueBandApp:
         try:
             st = {
                 "src": self.src_var.get(),
+                "sfx_off": self.sfx_off_var.get(),
                 "script": self.script_var.get(),
                 "out": self.out_var.get(),
                 "config": self.config_var.get(),
+                "default_sfx": self.default_sfx_var.get(),
                 "mode": self.mode_var.get(),
                 "position": self.position_var.get(),
                 "band": self.band_var.get(),

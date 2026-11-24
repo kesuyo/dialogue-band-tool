@@ -190,13 +190,18 @@
     white-space: nowrap;
   }
 
-  /* Restore dialogue button when hidden */
-  .restore-btn {
+  /* Restore & SFX dock when dialogue is hidden */
+  .restore-dock {
     position: fixed;
     right: 16px;
-    bottom: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom, 16px));
     z-index: 45;
     display: none;
+    align-items: center;
+    gap: 8px;
+  }
+  body.dialogue-hidden .restore-dock { display: inline-flex; }
+  .restore-btn {
     appearance: none;
     border: 1px solid rgba(255, 255, 255, 0.22);
     background: rgba(16, 17, 22, 0.55);
@@ -206,11 +211,19 @@
     padding: 7px 14px;
     font-size: 12px;
     cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.18s ease, background 0.18s ease;
+    opacity: 0.65;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: opacity 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   }
   .restore-btn:hover { opacity: 1; background: rgba(16, 17, 22, 0.88); }
-  body.dialogue-hidden .restore-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .restore-btn.active {
+    background: rgba(255, 158, 199, 0.28);
+    border-color: rgba(255, 158, 199, 0.72);
+    color: #ffd9e9;
+    opacity: 0.9;
+  }
 
   /* Bottom thin progress line */
   .progress-track {
@@ -632,6 +645,7 @@
   <span class="tb-sep tb-main-sep"></span>
   <div class="tb-actions" id="tbActions">
     <button class="tb-btn" id="btnToggleText" type="button" title="セリフ ON/OFF (H)">セリフ ON</button>
+    <button class="tb-btn" id="btnToggleSfx" type="button" title="効果音 ON/OFF (E)">効果音 ON</button>
     <button class="tb-btn" id="btnAuto" type="button" title="オート再生 (A)">オート</button>
     <button class="tb-btn" id="btnLog" type="button" title="バックログ (L)">ログ</button>
     <button class="tb-btn" id="btnThumbs" type="button" title="サムネ一覧 (G)">サムネ一覧</button>
@@ -642,7 +656,10 @@
 </div>
 
 <button class="menu-toggle-btn" id="btnMenuToggle" type="button" title="操作バーを表示 (M)">≡</button>
-<button class="restore-btn" id="btnRestoreText" type="button" title="セリフを表示 (H)">セリフを表示</button>
+<div class="restore-dock" id="restoreDock">
+  <button class="restore-btn" id="btnRestoreSfx" type="button" title="効果音 ON/OFF (E)">効果音 ON</button>
+  <button class="restore-btn" id="btnRestoreText" type="button" title="セリフを表示 (H)">セリフを表示</button>
+</div>
 
 <main class="stage" id="stage">
   <div class="stage-frame" id="stageFrame">
@@ -683,8 +700,8 @@
     </div>
     <div class="modal-body">
       <div class="thumb-tabs">
-        <button class="tb-btn active" id="tabThumbScenes" type="button">シーン一覧（全ページ）</button>
-        <button class="tb-btn" id="tabThumbImages" type="button">画像一覧（CG別）</button>
+        <button class="tb-btn active" id="tabThumbImages" type="button">画像一覧（CG別）</button>
+        <button class="tb-btn" id="tabThumbScenes" type="button">シーン一覧（全ページ）</button>
       </div>
       <div class="thumb-grid" id="thumbGrid"></div>
     </div>
@@ -795,11 +812,16 @@
     return;
   }
 
-  const SETTINGS_VERSION = 3;
+  const SETTINGS_VERSION = 4;
   const LS_PREFIX = "dv_" + (DATA.storyId || "story") + "_";
   const KEY_IDX = LS_PREFIX + "index";
   const KEY_NAMES = LS_PREFIX + "names";
   const KEY_SETTINGS = LS_PREFIX + "settings";
+
+  const hasAltImages = Boolean(DATA.hasAltImages);
+  const altCfg = DATA.altConfig || {};
+  const sfxLabel = (typeof altCfg.label === "string" && altCfg.label.trim()) ? altCfg.label.trim() : "効果音";
+  const defaultSfxOn = altCfg.defaultOn !== false;
 
   const def = DATA.defaults || {};
   const baseOpacity = typeof def.overlayOpacity === "number" ? def.overlayOpacity : 0.76;
@@ -822,6 +844,7 @@
     autoSec: 3.5,
     replaceInBody: false,
     dialogueVisible: true,
+    sfxVisible: defaultSfxOn,
     pinTopbar: false
   };
 
@@ -855,7 +878,7 @@
   let typeTimer = null;
   let fullDisplayedText = "";
   let isTyping = false;
-  let thumbMode = "scenes";
+  let thumbMode = "images";
 
   // Top bar auto-hide state
   let topbarManualOpen = false;
@@ -873,6 +896,8 @@
   const elBtnPrev = document.getElementById("btnPrev");
   const elBtnNext = document.getElementById("btnNext");
   const elBtnToggleText = document.getElementById("btnToggleText");
+  const elBtnToggleSfx = document.getElementById("btnToggleSfx");
+  const elBtnRestoreSfx = document.getElementById("btnRestoreSfx");
   const elBtnRestoreText = document.getElementById("btnRestoreText");
   const elBtnAuto = document.getElementById("btnAuto");
   const elBtnLog = document.getElementById("btnLog");
@@ -1035,6 +1060,50 @@
   window.addEventListener("resize", syncGeometry);
   elMainImg.addEventListener("load", syncGeometry);
 
+  const preloadedUrls = new Set();
+  function getStepImage(step, useSfx) {
+    if (!step) return "";
+    const wantSfx = typeof useSfx === "boolean" ? useSfx : settings.sfxVisible;
+    if (hasAltImages && !wantSfx && step.imageAlt) return step.imageAlt;
+    return step.image;
+  }
+  function getStepAltImage(step) {
+    if (!step || !hasAltImages || !step.imageAlt || step.imageAlt === step.image) return null;
+    return settings.sfxVisible ? step.imageAlt : step.image;
+  }
+  function preloadImageUrl(url) {
+    if (!url || preloadedUrls.has(url)) return;
+    preloadedUrls.add(url);
+    const im = new Image();
+    im.src = url;
+  }
+  function syncActionGridCols() {
+    const visCount = Array.from(elTbActions.querySelectorAll(".tb-btn")).filter(
+      b => b.style.display !== "none"
+    ).length;
+    elTbActions.classList.toggle("cols-3", visCount <= 6);
+  }
+  function updateSfxButtons() {
+    if (!hasAltImages) {
+      elBtnToggleSfx.style.display = "none";
+      elBtnRestoreSfx.style.display = "none";
+      syncActionGridCols();
+      return;
+    }
+    elBtnToggleSfx.style.display = "";
+    elBtnRestoreSfx.style.display = "";
+    const on = Boolean(settings.sfxVisible);
+    const label = `${sfxLabel} ${on ? "ON" : "OFF"}`;
+    const tip = `${sfxLabel} ON/OFF (E)`;
+    elBtnToggleSfx.textContent = label;
+    elBtnToggleSfx.title = tip;
+    elBtnToggleSfx.classList.toggle("active", !on);
+    elBtnRestoreSfx.textContent = label;
+    elBtnRestoreSfx.title = tip;
+    elBtnRestoreSfx.classList.toggle("active", !on);
+    syncActionGridCols();
+  }
+
   function applyThemeStyles() {
     const rootStyle = document.documentElement.style;
     const [r, g, b] = hexToRgb(def.bandColor || "#0C0C0E");
@@ -1075,6 +1144,7 @@
     document.body.classList.toggle("topbar-pinned", Boolean(settings.pinTopbar));
     elBtnToggleText.textContent = settings.dialogueVisible ? "セリフ ON" : "セリフ OFF";
     elBtnToggleText.classList.toggle("active", !settings.dialogueVisible);
+    updateSfxButtons();
 
     if (settings.pinTopbar && settings.dialogueVisible) {
       showTopbar(0);
@@ -1109,13 +1179,16 @@
     stopTypewriter();
     if (DATA.steps.length === 0) return;
     const step = DATA.steps[currentIndex];
+    const curImgSrc = getStepImage(step);
 
-    if (elMainImg.getAttribute("src") !== step.image) {
-      elMainImg.setAttribute("src", step.image);
+    if (elMainImg.getAttribute("src") !== curImgSrc) {
+      elMainImg.setAttribute("src", curImgSrc);
     }
+    preloadImageUrl(getStepAltImage(step));
     if (currentIndex + 1 < DATA.steps.length) {
-      const preload = new Image();
-      preload.src = DATA.steps[currentIndex + 1].image;
+      const nextStep = DATA.steps[currentIndex + 1];
+      preloadImageUrl(getStepImage(nextStep));
+      preloadImageUrl(getStepAltImage(nextStep));
     }
 
     elPage.textContent = `${currentIndex + 1} / ${DATA.steps.length}`;
@@ -1240,6 +1313,28 @@
     }
   }
 
+  function toggleSfx() {
+    if (!hasAltImages) return;
+    settings.sfxVisible = !settings.sfxVisible;
+    applyThemeStyles();
+    const step = DATA.steps[currentIndex];
+    if (step) {
+      const targetSrc = getStepImage(step);
+      if (targetSrc && elMainImg.getAttribute("src") !== targetSrc) {
+        elMainImg.setAttribute("src", targetSrc);
+      }
+      preloadImageUrl(getStepAltImage(step));
+    }
+    if (currentIndex + 1 < DATA.steps.length) {
+      const nextStep = DATA.steps[currentIndex + 1];
+      preloadImageUrl(getStepImage(nextStep));
+      preloadImageUrl(getStepAltImage(nextStep));
+    }
+    if (document.getElementById("modalThumbs").classList.contains("open")) {
+      renderThumbGrid();
+    }
+  }
+
   // Modals
   const MODAL_IDS = ["modalLog", "modalThumbs", "modalNames", "modalSettings", "modalEnd"];
   function isAnyModalOpen() {
@@ -1332,7 +1427,7 @@
     if (thumbMode === "scenes") {
       items = DATA.steps.map((st, idx) => ({
         stepIndex: idx,
-        image: st.image,
+        image: getStepImage(st),
         badge: `#${idx + 1}`,
         speakerRaw: st.speaker,
         speakerDisp: getDisplaySpeaker(st.speaker),
@@ -1342,16 +1437,17 @@
     } else {
       const seenImg = new Map();
       DATA.steps.forEach((st, idx) => {
-        if (!seenImg.has(st.image)) {
-          seenImg.set(st.image, {
+        const groupKey = st.key || st.image;
+        if (!seenImg.has(groupKey)) {
+          seenImg.set(groupKey, {
             stepIndex: idx,
-            image: st.image,
+            image: getStepImage(st),
             count: 0,
             snippet: formatBodyText(st.text),
             hasCurrent: false
           });
         }
-        const entry = seenImg.get(st.image);
+        const entry = seenImg.get(groupKey);
         entry.count += 1;
         if (idx === currentIndex) entry.hasCurrent = true;
       });
@@ -1563,14 +1659,16 @@
   }
   function updateFullscreenBtn() {
     const supported = isFullscreenSupported();
-    elTbActions.classList.toggle("cols-3", !supported);
     if (!supported) {
       elBtnFullscreen.style.display = "none";
+      syncActionGridCols();
       return;
     }
+    elBtnFullscreen.style.display = "";
     const active = Boolean(getFullscreenEl());
     elBtnFullscreen.classList.toggle("active", active);
     elBtnFullscreen.textContent = active ? "全画面解除" : "全画面";
+    syncActionGridCols();
     setTimeout(syncGeometry, 60);
   }
   function toggleFullscreen() {
@@ -1620,6 +1718,8 @@
   elBtnPrev.addEventListener("click", e => { e.stopPropagation(); stepBack(); });
   elBtnNext.addEventListener("click", e => { e.stopPropagation(); advance(true); });
   elBtnToggleText.addEventListener("click", e => { e.stopPropagation(); toggleDialogue(); });
+  elBtnToggleSfx.addEventListener("click", e => { e.stopPropagation(); toggleSfx(); });
+  elBtnRestoreSfx.addEventListener("click", e => { e.stopPropagation(); toggleSfx(); });
   elBtnRestoreText.addEventListener("click", e => { e.stopPropagation(); toggleDialogue(); });
   elBtnAuto.addEventListener("click", e => { e.stopPropagation(); setAutoPlay(!autoPlaying); });
   elBtnLog.addEventListener("click", e => { e.stopPropagation(); openBacklog(); });
@@ -1739,6 +1839,9 @@
     } else if (k === "h") {
       e.preventDefault();
       toggleDialogue();
+    } else if (k === "e") {
+      e.preventDefault();
+      toggleSfx();
     } else if (k === "m") {
       e.preventDefault();
       if (!settings.dialogueVisible) return;

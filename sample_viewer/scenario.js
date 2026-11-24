@@ -1,8 +1,13 @@
 window.__DIALOGUE_VIEWER_DATA__ = {
-  "version": "1.6",
+  "version": "1.7",
   "storyId": "d3d0c740ff",
   "title": "帯テキスト見本",
   "displayTitle": "帯テキスト見本",
+  "hasAltImages": false,
+  "altConfig": {
+    "label": "効果音",
+    "defaultOn": true
+  },
   "speakers": [
     "彼女",
     "彼"

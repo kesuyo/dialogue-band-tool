@@ -532,6 +532,8 @@ class TestGuiApp(unittest.TestCase):
 
             app.title_var.set("GUIテスト作品")
             self.assertEqual(app.title_var.get(), "GUIテスト作品")
+            self.assertEqual(app.sfx_off_var.get(), "")
+            self.assertTrue(app.default_sfx_var.get())
             with tempfile.TemporaryDirectory() as td_html:
                 import export_html_viewer
 
@@ -541,8 +543,10 @@ class TestGuiApp(unittest.TestCase):
                     Path(td_html),
                     app.build_runtime_cfg(),
                     title=app.title_var.get(),
+                    default_sfx=app.default_sfx_var.get(),
                 )
                 self.assertEqual(html_res["steps"], 3)
+                self.assertFalse(html_res["has_alt_images"])
                 self.assertTrue((Path(td_html) / "index.html").is_file())
         finally:
             root.destroy()
@@ -628,9 +632,10 @@ class TestHtmlViewerExport(unittest.TestCase):
             self.assertTrue(js_raw.startswith(prefix))
             payload = json.loads(js_raw[len(prefix) :].rstrip().rstrip(";"))
 
-            self.assertEqual(payload["version"], "1.6")
+            self.assertEqual(payload["version"], "1.7")
             self.assertEqual(payload["title"], "サンプル物語")
             self.assertEqual(payload["displayTitle"], "サンプル物語")
+            self.assertFalse(payload["hasAltImages"])
             self.assertEqual(payload["speakers"], ["さくら", "彼"])
             self.assertEqual(payload["speakerColors"]["さくら"], "#FF9EC7")
             self.assertAlmostEqual(payload["defaults"]["overlayOpacity"], 0.45, places=2)
@@ -649,6 +654,9 @@ class TestHtmlViewerExport(unittest.TestCase):
             self.assertNotIn("fetch(", html_raw)
             for token in (
                 "btnToggleText",
+                "btnToggleSfx",
+                "btnRestoreSfx",
+                "restore-dock",
                 ">セリフを表示</button>",
                 "modalNames",
                 "chkReplaceInBody",
@@ -668,7 +676,8 @@ class TestHtmlViewerExport(unittest.TestCase):
                 'min="1" max="100"',
                 "opacityLevel: 50",
                 "fontLevel: 50",
-                "SETTINGS_VERSION = 3",
+                "SETTINGS_VERSION = 4",
+                'thumbMode = "images"',
                 "tb-nav",
                 "tb-actions",
                 "btnCloseTopbar",
@@ -677,6 +686,7 @@ class TestHtmlViewerExport(unittest.TestCase):
                 "100dvh",
             ):
                 self.assertIn(token, html_raw)
+            self.assertLess(html_raw.index("tabThumbImages"), html_raw.index("tabThumbScenes"))
             for removed in (
                 "selSpeakerStyle",
                 "rngSpeakerScale",
@@ -736,6 +746,132 @@ class TestHtmlViewerExport(unittest.TestCase):
             )
             self.assertEqual(rc2, 0)
             self.assertTrue((out2 / "index.html").is_file())
+
+    def test_export_html_viewer_sfx_toggle_and_dedup(self):
+        import export_html_viewer
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "sfx_on"
+            alt = root / "sfx_off"
+            out = root / "viewer"
+            src.mkdir()
+            alt.mkdir()
+
+            Image.new("RGB", (600, 800), (40, 50, 70)).save(src / "001_scene.png")
+            Image.new("RGB", (600, 800), (90, 90, 90)).save(src / "002_same.png")
+            Image.new("RGB", (600, 800), (50, 70, 50)).save(src / "003_only_main.png")
+
+            # 001 differs, 002 is byte-identical (dedup), 003 missing in alt, 004 extra in alt
+            Image.new("RGB", (600, 800), (200, 60, 70)).save(alt / "001_clean.png")
+            (alt / "002_clean.png").write_bytes((src / "002_same.png").read_bytes())
+            Image.new("RGB", (600, 800), (10, 10, 10)).save(alt / "004_extra.png")
+
+            csv_p = root / "script.csv"
+            csv_p.write_text(
+                "001,彼女,ドキッとするね\n"
+                "001,彼,本当だね\n"
+                "002,,同一画像のシーン\n"
+                "003,彼女,差分なしページ\n",
+                encoding="utf-8",
+            )
+            cfg = {
+                "mode": "overlay",
+                "position": "bottom",
+                "band_color": (12, 12, 14),
+                "text_color": (255, 255, 255),
+                "narration_color": (234, 237, 245),
+                "format": "keep",
+                "quality": 92,
+                "auto_speaker_colors": False,
+                "colors": {},
+            }
+            res = export_html_viewer.export_html_viewer(
+                src,
+                csv_p,
+                out,
+                cfg,
+                title="効果音切替テスト",
+                sfx_off_dir=alt,
+                default_sfx=False,
+                sfx_label="描き文字",
+            )
+            self.assertEqual(res["images"], 3)
+            self.assertEqual(res["alt_images"], 2)
+            self.assertTrue(res["has_alt_images"])
+            self.assertTrue(any("sfx-off image missing" in w and "003" in w for w in res["warnings"]))
+            self.assertTrue(any("extra sfx-off image" in w and "004" in w for w in res["warnings"]))
+
+            self.assertTrue((out / "images" / "sfx" / "001_scene.png").is_file())
+            self.assertTrue((out / "images" / "sfx" / "002_same.png").is_file())
+            self.assertTrue((out / "images" / "sfx" / "003_only_main.png").is_file())
+            self.assertTrue((out / "images" / "nosfx" / "001_clean.png").is_file())
+            # 002 was byte-identical -> deduplicated; 004 had no main image -> not copied
+            self.assertFalse((out / "images" / "nosfx" / "002_clean.png").exists())
+            self.assertFalse((out / "images" / "nosfx" / "004_extra.png").exists())
+
+            js_raw = (out / "scenario.js").read_text(encoding="utf-8")
+            prefix = "window.__DIALOGUE_VIEWER_DATA__ = "
+            payload = json.loads(js_raw[len(prefix) :].rstrip().rstrip(";"))
+            self.assertTrue(payload["hasAltImages"])
+            self.assertEqual(payload["altConfig"], {"label": "描き文字", "defaultOn": False})
+            self.assertEqual(payload["steps"][0]["image"], "images/sfx/001_scene.png")
+            self.assertEqual(payload["steps"][0]["imageAlt"], "images/nosfx/001_clean.png")
+            self.assertEqual(payload["steps"][1]["imageAlt"], "images/nosfx/001_clean.png")
+            self.assertEqual(payload["steps"][2]["imageAlt"], "images/sfx/002_same.png")
+            self.assertEqual(payload["steps"][3]["imageAlt"], "images/sfx/003_only_main.png")
+
+            # CLI entrypoints roundtrip with --sfx-off-dir and --default-sfx off
+            out_cli = root / "viewer_cli"
+            rc_cli = adb.main(
+                [
+                    str(src),
+                    str(csv_p),
+                    str(out_cli),
+                    "--export-html",
+                    "--sfx-off-dir",
+                    str(alt),
+                    "--default-sfx",
+                    "off",
+                ]
+            )
+            self.assertEqual(rc_cli, 0)
+            js_cli = (out_cli / "scenario.js").read_text(encoding="utf-8")
+            payload_cli = json.loads(js_cli[len(prefix) :].rstrip().rstrip(";"))
+            self.assertTrue(payload_cli["hasAltImages"])
+            self.assertFalse(payload_cli["altConfig"]["defaultOn"])
+
+            out_cli2 = root / "viewer_cli2"
+            rc_cli2 = export_html_viewer.main(
+                [
+                    str(src),
+                    str(csv_p),
+                    str(out_cli2),
+                    "--sfx-off-dir",
+                    str(alt),
+                    "--sfx-label",
+                    "擬音",
+                ]
+            )
+            self.assertEqual(rc_cli2, 0)
+            js_cli2 = (out_cli2 / "scenario.js").read_text(encoding="utf-8")
+            payload_cli2 = json.loads(js_cli2[len(prefix) :].rstrip().rstrip(";"))
+            self.assertEqual(payload_cli2["altConfig"], {"label": "擬音", "defaultOn": True})
+
+            # --strict should reject missing sfx-off image
+            out_strict = root / "viewer_strict"
+            rc_strict = adb.main(
+                [
+                    str(src),
+                    str(csv_p),
+                    str(out_strict),
+                    "--export-html",
+                    "--sfx-off-dir",
+                    str(alt),
+                    "--strict",
+                ]
+            )
+            self.assertEqual(rc_strict, 1)
 
 
 if __name__ == "__main__":
