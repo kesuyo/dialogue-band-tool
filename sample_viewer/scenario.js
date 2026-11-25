@@ -1,5 +1,5 @@
 window.__DIALOGUE_VIEWER_DATA__ = {
-  "version": "1.7",
+  "version": "1.8",
   "storyId": "d3d0c740ff",
   "title": "帯テキスト見本",
   "displayTitle": "帯テキスト見本",
@@ -19,7 +19,8 @@ window.__DIALOGUE_VIEWER_DATA__ = {
   "defaults": {
     "mode": "overlay",
     "position": "bottom",
-    "overlayOpacity": 0.2027,
+    "maxLines": 2,
+    "overlayOpacity": 0.5,
     "overlayFade": 0.3,
     "overlayMargin": 0.0,
     "textOutline": 1,

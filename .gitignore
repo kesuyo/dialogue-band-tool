@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .gui_state.json
+sample_output*/
+sample_output*.zip

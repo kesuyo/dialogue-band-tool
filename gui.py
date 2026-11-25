@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Desktop GUI for Dialogue Band Batch Composer v1.7."""
+"""Desktop GUI for Dialogue Band Batch Composer v1.8."""
 
 import json
 import os
@@ -34,7 +34,7 @@ class DialogueBandApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("帯テキスト一括合成ツール v1.7")
+        self.root.title("帯テキスト一括合成ツール v1.8")
         self.root.geometry("1160x800")
         self.root.minsize(960, 680)
 

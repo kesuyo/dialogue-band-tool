@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Offline HTML novel viewer exporter for Dialogue Band Batch Composer v1.7."""
+"""Offline HTML novel viewer exporter for Dialogue Band Batch Composer v1.8."""
 
 import argparse
 import csv
@@ -287,6 +287,7 @@ def export_html_viewer(
     defaults = {
         "mode": str(cfg.get("mode", "overlay")).lower(),
         "position": str(cfg.get("position", "bottom")).lower(),
+        "maxLines": int(cfg.get("max_lines", 2)),
         "overlayOpacity": round(float(cfg.get("overlay_opacity", 0.76)), 4),
         "overlayFade": round(float(cfg.get("overlay_fade", 0.30)), 4),
         "overlayMargin": round(float(cfg.get("overlay_margin", 0.0)), 4),
@@ -302,7 +303,7 @@ def export_html_viewer(
     }
 
     data = {
-        "version": "1.7",
+        "version": "1.8",
         "storyId": story_id,
         "title": viewer_title,
         "displayTitle": explicit_title,
@@ -362,6 +363,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     --band-bg-solid: rgb(12,12,14);
     --text-color: #FFFFFF;
     --narration-color: #EAEDF5;
+    --extend-band-h: 132px;
     --extend-reserve: 0px;
     --overlay-margin: 0px;
     --fade-pad: 20px;
@@ -640,8 +642,11 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     transition: opacity 0.16s ease;
   }
   body.dialogue-hidden .band,
-  .band.empty-cg {
+  .stage-frame.mode-overlay .band.empty-cg {
     display: none;
+  }
+  .stage-frame.mode-extend .band.empty-cg .band-inner {
+    visibility: hidden;
   }
   .stage-frame.mode-overlay .band {
     position: absolute;
@@ -661,17 +666,24 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     position: relative;
     background: var(--band-bg-solid);
     border-top: 1px solid rgba(255, 255, 255, 0.14);
+    height: var(--extend-band-h);
+    flex-shrink: 0;
+    overflow-y: auto;
   }
   .stage-frame.mode-extend.pos-top .band {
     border-top: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.14);
   }
+  .stage-frame.mode-extend .band-inner {
+    min-height: 100%;
+    justify-content: center;
+  }
 
   .band-inner {
     padding:
-      clamp(10px, calc(var(--img-w) * 0.022), 24px)
-      calc(var(--img-w) * var(--pad-x))
-      calc(clamp(12px, calc(var(--img-w) * 0.026), 28px) + env(safe-area-inset-bottom, 0px));
+      clamp(10px, calc(var(--font-px) * 0.65), 22px)
+      clamp(12px, calc(var(--img-w) * var(--pad-x)), 56px)
+      calc(clamp(12px, calc(var(--font-px) * 0.75), 26px) + env(safe-area-inset-bottom, 0px));
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -1159,12 +1171,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     return;
   }
 
-  const SETTINGS_VERSION = 4;
-  const LS_PREFIX = "dv_" + (DATA.storyId || "story") + "_";
-  const KEY_IDX = LS_PREFIX + "index";
-  const KEY_NAMES = LS_PREFIX + "names";
-  const KEY_SETTINGS = LS_PREFIX + "settings";
-
   const hasAltImages = Boolean(DATA.hasAltImages);
   const altCfg = DATA.altConfig || {};
   const sfxLabel = (typeof altCfg.label === "string" && altCfg.label.trim()) ? altCfg.label.trim() : "効果音";
@@ -1176,9 +1182,10 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   const baseFontScale = typeof def.fontScale === "number" ? def.fontScale : 1.0;
   const baseOutline = typeof def.textOutline === "number" ? def.textOutline : 0;
   const basePosition = def.position === "top" ? "top" : "bottom";
+  const baseMaxLines = Math.max(2, Math.min(6, Number(def.maxLines) || 2));
+  const hasAnySpeakers = Array.isArray(DATA.speakers) && DATA.speakers.length > 0;
 
   const defaultSettings = {
-    version: SETTINGS_VERSION,
     mode: def.mode === "extend" ? "extend" : "overlay",
     opacityLevel: 50,
     fontLevel: 50,
@@ -1195,30 +1202,9 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     pinTopbar: false
   };
 
-  function loadJson(key, fallback) {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (_) {
-      return fallback;
-    }
-  }
-  function saveJson(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
-  }
-
-  const loadedRawSettings = loadJson(KEY_SETTINGS, null);
-  let settings =
-    loadedRawSettings && loadedRawSettings.version === SETTINGS_VERSION
-      ? Object.assign({}, defaultSettings, loadedRawSettings)
-      : Object.assign({}, defaultSettings);
-
-  let customNames = loadJson(KEY_NAMES, {});
+  let settings = Object.assign({}, defaultSettings);
+  let customNames = {};
   let currentIndex = 0;
-  const savedIdx = parseInt(localStorage.getItem(KEY_IDX) || "0", 10);
-  if (!isNaN(savedIdx) && savedIdx >= 0 && savedIdx < DATA.steps.length) {
-    currentIndex = savedIdx;
-  }
 
   let autoPlaying = false;
   let autoTimer = null;
@@ -1263,8 +1249,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   const elDialogueText = document.getElementById("dialogueText");
   const elProgressFill = document.getElementById("progressFill");
 
-  let currentImgW = 832;
-
   const dispTitle = typeof DATA.displayTitle === "string" ? DATA.displayTitle : (DATA.title || "");
   if (dispTitle) {
     elTitle.textContent = dispTitle;
@@ -1283,11 +1267,29 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     const lv = Math.max(1, Math.min(100, Number(v) || 50));
     return lv <= 50 ? 0.65 + ((lv - 1) / 49) * 0.35 : 1.0 + ((lv - 50) / 50) * 0.45;
   }
-  function updateFontSizeCss() {
-    const imgW = currentImgW > 40 ? currentImgW : Math.min(window.innerWidth, 832);
-    const basePx = Math.max(14, Math.min(36, imgW * 0.032 * baseFontScale));
-    const finalPx = Math.max(10, Math.min(48, basePx * mapFontMult(settings.fontLevel)));
-    document.documentElement.style.setProperty("--font-px", finalPx.toFixed(2) + "px");
+  function updateLayoutMetrics() {
+    const vw = Math.max(280, window.innerWidth || 832);
+    const vh = Math.max(320, window.innerHeight || 900);
+    const refW = Math.min(vw, vh * 0.85);
+    const basePx = Math.max(14, Math.min(36, refW * 0.032 * baseFontScale));
+    const fontPx = Math.max(10, Math.min(48, basePx * mapFontMult(settings.fontLevel)));
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--font-px", fontPx.toFixed(2) + "px");
+
+    const spStyle = def.speakerStyle || settings.speakerStyle || "plate";
+    const spH = hasAnySpeakers
+      ? fontPx * (spStyle === "plate" ? 1.65 : 1.25) + fontPx * settings.speakerGap
+      : 0;
+    const bodyH = fontPx * settings.lineHeight * baseMaxLines;
+    const padV = Math.max(22, Math.min(48, fontPx * 1.45));
+    const rawBandH = Math.ceil(spH + bodyH + padV + 6);
+    const maxBandH = Math.max(108, Math.floor(vh * 0.34));
+    const minBandH = Math.min(maxBandH, Math.max(96, Math.round(vh * 0.14)));
+    const fixedBandH = Math.max(minBandH, Math.min(maxBandH, rawBandH));
+
+    rootStyle.setProperty("--extend-band-h", fixedBandH + "px");
+    const reserve = settings.mode === "extend" && settings.dialogueVisible ? fixedBandH : 0;
+    rootStyle.setProperty("--extend-reserve", reserve + "px");
   }
 
   function clearTopbarHideTimer() {
@@ -1380,31 +1382,23 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   function syncGeometry() {
     const rect = elMainImg.getBoundingClientRect();
     if (rect.width > 40) {
-      currentImgW = rect.width;
       document.documentElement.style.setProperty("--img-w", rect.width.toFixed(1) + "px");
-      updateFontSizeCss();
       if (settings.mode === "extend") {
         elBand.style.width = rect.width.toFixed(1) + "px";
       } else {
         elBand.style.width = "100%";
       }
     }
-    if (settings.mode === "extend" && !elBand.classList.contains("empty-cg")) {
-      const bh = elBand.getBoundingClientRect().height;
-      if (bh > 20) {
-        document.documentElement.style.setProperty("--extend-reserve", Math.ceil(bh) + "px");
-      }
-    } else {
-      document.documentElement.style.setProperty("--extend-reserve", "0px");
-    }
   }
 
   if (typeof ResizeObserver !== "undefined") {
     const ro = new ResizeObserver(() => syncGeometry());
     ro.observe(elMainImg);
-    ro.observe(elBand);
   }
-  window.addEventListener("resize", syncGeometry);
+  window.addEventListener("resize", () => {
+    updateLayoutMetrics();
+    syncGeometry();
+  });
   elMainImg.addEventListener("load", syncGeometry);
 
   const preloadedUrls = new Set();
@@ -1470,7 +1464,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     rootStyle.setProperty("--band-bg-solid", `rgb(${r},${g},${b})`);
     rootStyle.setProperty("--text-color", def.textColor || "#FFFFFF");
     rootStyle.setProperty("--narration-color", def.narrationColor || "#EAEDF5");
-    updateFontSizeCss();
+    updateLayoutMetrics();
     rootStyle.setProperty("--speaker-gap", String(settings.speakerGap));
     rootStyle.setProperty("--line-height", String(settings.lineHeight));
     rootStyle.setProperty("--pad-x", String(settings.padX));
@@ -1499,7 +1493,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       scheduleTopbarHide(800);
     }
 
-    saveJson(KEY_SETTINGS, settings);
     syncGeometry();
   }
 
@@ -1580,7 +1573,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
       finishTypewriter(true);
     }
 
-    try { localStorage.setItem(KEY_IDX, String(currentIndex)); } catch (_) {}
     syncGeometry();
   }
 
@@ -1908,8 +1900,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     });
     customNames = nextNames;
     settings.replaceInBody = document.getElementById("chkReplaceInBody").checked;
-    saveJson(KEY_NAMES, customNames);
-    saveJson(KEY_SETTINGS, settings);
     closeAllModals();
     renderStep(false);
   }
@@ -1965,7 +1955,6 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   elRngAutoSec.addEventListener("input", () => {
     settings.autoSec = Number(elRngAutoSec.value);
     elValAutoSec.textContent = settings.autoSec.toFixed(1) + "秒";
-    saveJson(KEY_SETTINGS, settings);
   });
   elChkPinTopbar.addEventListener("change", () => {
     settings.pinTopbar = elChkPinTopbar.checked;
@@ -2232,7 +2221,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Offline HTML novel viewer exporter v1.7")
+    ap = argparse.ArgumentParser(description="Offline HTML novel viewer exporter v1.8")
     ap.add_argument("src")
     ap.add_argument("script")
     ap.add_argument("out")

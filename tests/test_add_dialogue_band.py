@@ -485,7 +485,8 @@ class TestGuiApp(unittest.TestCase):
             app.mode_var.set("extend")
             im_ext, info_ext = app.render_preview_pil(sample_img)
             self.assertGreater(im_ext.height, 1216)
-            self.assertIn("彼女", info_ext)
+            expected_sp = app.speaker_names.get("彼女") or "彼女"
+            self.assertIn(expected_sp, info_ext)
 
             app.mode_var.set("overlay")
             im_ov, info_ov = app.render_preview_pil(sample_img)
@@ -531,6 +532,8 @@ class TestGuiApp(unittest.TestCase):
                 self.assertEqual(app.text_outline_var.get(), "2")
 
             app.title_var.set("GUIテスト作品")
+            app.sfx_off_var.set("")
+            app.default_sfx_var.set(True)
             self.assertEqual(app.title_var.get(), "GUIテスト作品")
             self.assertEqual(app.sfx_off_var.get(), "")
             self.assertTrue(app.default_sfx_var.get())
@@ -632,10 +635,11 @@ class TestHtmlViewerExport(unittest.TestCase):
             self.assertTrue(js_raw.startswith(prefix))
             payload = json.loads(js_raw[len(prefix) :].rstrip().rstrip(";"))
 
-            self.assertEqual(payload["version"], "1.7")
+            self.assertEqual(payload["version"], "1.8")
             self.assertEqual(payload["title"], "サンプル物語")
             self.assertEqual(payload["displayTitle"], "サンプル物語")
             self.assertFalse(payload["hasAltImages"])
+            self.assertIn("maxLines", payload["defaults"])
             self.assertEqual(payload["speakers"], ["さくら", "彼"])
             self.assertEqual(payload["speakerColors"]["さくら"], "#FF9EC7")
             self.assertAlmostEqual(payload["defaults"]["overlayOpacity"], 0.45, places=2)
@@ -676,7 +680,9 @@ class TestHtmlViewerExport(unittest.TestCase):
                 'min="1" max="100"',
                 "opacityLevel: 50",
                 "fontLevel: 50",
-                "SETTINGS_VERSION = 4",
+                "--extend-band-h",
+                "vh * 0.85",
+                "updateLayoutMetrics",
                 'thumbMode = "images"',
                 "tb-nav",
                 "tb-actions",
@@ -702,6 +708,8 @@ class TestHtmlViewerExport(unittest.TestCase):
                 ">セリフを表示 (H)<",
                 "テキストなし画像",
                 "overflow-x: auto",
+                "localStorage",
+                "sessionStorage",
             ):
                 self.assertNotIn(removed, html_raw)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Dialogue band batch composer v1.5.
+"""Dialogue band batch composer v1.8.
 
 Usage:
     python3 add_dialogue_band.py SRC_DIR SCRIPT.csv OUT_DIR [options]
@@ -1176,7 +1176,7 @@ def build_cfg(args, file_cfg):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.7")
+    ap = argparse.ArgumentParser(description="Dialogue band batch composer v1.8")
     ap.add_argument("src")
     ap.add_argument("script")
     ap.add_argument("out")
