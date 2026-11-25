@@ -779,8 +779,8 @@
         </div>
         <div class="form-row">
           <span class="form-label">オート再生速度</span>
-          <input class="form-range" id="rngAutoSec" type="range" min="1.5" max="8.0" step="0.5">
-          <span class="form-val" id="valAutoSec"></span>
+          <input class="form-range" id="rngAutoSpeed" type="range" min="1" max="100" step="1">
+          <span class="form-val" id="valAutoSpeed"></span>
         </div>
       </div>
       <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
@@ -847,7 +847,7 @@
     lineHeight: typeof def.lineHeight === "number" ? def.lineHeight : 1.45,
     padX: typeof def.padX === "number" ? def.padX : 0.045,
     textSpeed: "instant",
-    autoSec: 3.5,
+    autoSpeedLevel: 50,
     replaceInBody: false,
     dialogueVisible: true,
     sfxVisible: defaultSfxOn,
@@ -1156,7 +1156,8 @@
     isTyping = false;
   }
 
-  function finishTypewriter(showCaret) {
+  function finishTypewriter(showCaret, fromTypewriterEnd) {
+    const wasTyping = isTyping;
     stopTypewriter();
     elDialogueText.textContent = fullDisplayedText;
     if (showCaret && currentIndex < DATA.steps.length - 1) {
@@ -1164,6 +1165,9 @@
       sp.className = "next-caret";
       sp.textContent = "▼";
       elDialogueText.appendChild(sp);
+    }
+    if (fromTypewriterEnd && wasTyping && autoPlaying && !isAnyModalOpen()) {
+      scheduleNextAuto(true);
     }
   }
 
@@ -1218,7 +1222,7 @@
         pos += 1;
         elDialogueText.textContent = fullDisplayedText.slice(0, pos);
         if (pos >= fullDisplayedText.length) {
-          finishTypewriter(true);
+          finishTypewriter(true, true);
         }
       }, 28);
     } else {
@@ -1228,20 +1232,49 @@
     syncGeometry();
   }
 
-  function scheduleNextAuto() {
+  function mapAutoWaitMult(v) {
+    const lv = Math.max(1, Math.min(100, Number(v) || 50));
+    if (lv <= 50) return 2.0 - ((lv - 1) / 49) * 1.0;
+    return 1.0 - ((lv - 50) / 50) * 0.55;
+  }
+
+  function computeAutoDelayMs(stepIdx, afterTypewriter) {
+    const step = DATA.steps[stepIdx];
+    if (!step) return 3000;
+    const mult = mapAutoWaitMult(settings.autoSpeedLevel);
+    const body = formatBodyText(step.text || "").trim();
+    const hasDialogue = Boolean(body && settings.dialogueVisible);
+
+    if (!hasDialogue) {
+      return Math.max(800, Math.round(3500 * mult));
+    }
+
+    const prevStep = stepIdx > 0 ? DATA.steps[stepIdx - 1] : null;
+    const imageChanged = !prevStep || prevStep.image !== step.image;
+
+    const cleanChars = body.replace(/\s+/g, "").length;
+    const majorPauses = (body.match(/[。！？!?]+|\n/g) || []).length;
+    const minorPauses = (body.match(/[、，,]|…+|\.{2,}|—+|―+/g) || []).length;
+
+    const basePause = 1100;
+    const cgBonus = imageChanged ? 700 : 0;
+    const charTime = afterTypewriter ? cleanChars * 35 : cleanChars * 85;
+    const punctBonus = majorPauses * 180 + minorPauses * 80;
+
+    const rawMs = basePause + cgBonus + charTime + punctBonus;
+    return Math.max(900, Math.min(20000, Math.round(rawMs * mult)));
+  }
+
+  function scheduleNextAuto(afterTypewriter = false) {
     if (autoTimer) {
       clearTimeout(autoTimer);
       autoTimer = null;
     }
-    if (!autoPlaying || isAnyModalOpen()) return;
-    const curText = DATA.steps[currentIndex].text || "";
-    const delayMs = Math.round(settings.autoSec * 1000 + Math.min(2500, curText.length * 45));
+    if (!autoPlaying || isAnyModalOpen() || isTyping) return;
+    const delayMs = computeAutoDelayMs(currentIndex, afterTypewriter);
     autoTimer = setTimeout(() => {
-      if (!autoPlaying || isAnyModalOpen()) return;
-      if (isTyping) {
-        finishTypewriter(true);
-        scheduleNextAuto();
-      } else if (currentIndex < DATA.steps.length - 1) {
+      if (!autoPlaying || isAnyModalOpen() || isTyping) return;
+      if (currentIndex < DATA.steps.length - 1) {
         goToStep(currentIndex + 1, true);
       } else {
         setAutoPlay(false);
@@ -1259,7 +1292,7 @@
       autoTimer = null;
     }
     if (autoPlaying) {
-      scheduleNextAuto();
+      scheduleNextAuto(false);
     }
   }
 
@@ -1267,14 +1300,14 @@
     const clamped = Math.max(0, Math.min(DATA.steps.length - 1, idx));
     currentIndex = clamped;
     renderStep(animate);
-    if (autoPlaying) scheduleNextAuto();
+    if (autoPlaying) scheduleNextAuto(false);
   }
 
   function advance(allowEndModal = true) {
     if (topbarManualOpen) hideTopbar();
     if (isTyping) {
       finishTypewriter(true);
-      if (autoPlaying) scheduleNextAuto();
+      if (autoPlaying) scheduleNextAuto(true);
       return;
     }
     if (currentIndex < DATA.steps.length - 1) {
@@ -1301,6 +1334,9 @@
     applyThemeStyles();
     if (settings.dialogueVisible && isTyping) {
       finishTypewriter(true);
+    }
+    if (autoPlaying && !isAnyModalOpen() && !isTyping) {
+      scheduleNextAuto(false);
     }
   }
 
@@ -1563,8 +1599,8 @@
   const elRngFontScale = document.getElementById("rngFontScale");
   const elValFontScale = document.getElementById("valFontScale");
   const elSelTextSpeed = document.getElementById("selTextSpeed");
-  const elRngAutoSec = document.getElementById("rngAutoSec");
-  const elValAutoSec = document.getElementById("valAutoSec");
+  const elRngAutoSpeed = document.getElementById("rngAutoSpeed");
+  const elValAutoSpeed = document.getElementById("valAutoSpeed");
   const elChkPinTopbar = document.getElementById("chkPinTopbar");
 
   if (basePosition === "top") {
@@ -1581,8 +1617,8 @@
     elRngFontScale.value = settings.fontLevel;
     elValFontScale.textContent = String(settings.fontLevel);
     elSelTextSpeed.value = settings.textSpeed;
-    elRngAutoSec.value = settings.autoSec;
-    elValAutoSec.textContent = settings.autoSec.toFixed(1) + "秒";
+    elRngAutoSpeed.value = settings.autoSpeedLevel;
+    elValAutoSpeed.textContent = String(settings.autoSpeedLevel);
     elChkPinTopbar.checked = Boolean(settings.pinTopbar);
   }
 
@@ -1604,9 +1640,12 @@
     settings.textSpeed = elSelTextSpeed.value;
     applyThemeStyles();
   });
-  elRngAutoSec.addEventListener("input", () => {
-    settings.autoSec = Number(elRngAutoSec.value);
-    elValAutoSec.textContent = settings.autoSec.toFixed(1) + "秒";
+  elRngAutoSpeed.addEventListener("input", () => {
+    settings.autoSpeedLevel = Number(elRngAutoSpeed.value);
+    elValAutoSpeed.textContent = elRngAutoSpeed.value;
+    if (autoPlaying && !isAnyModalOpen() && !isTyping) {
+      scheduleNextAuto(false);
+    }
   });
   elChkPinTopbar.addEventListener("change", () => {
     settings.pinTopbar = elChkPinTopbar.checked;
