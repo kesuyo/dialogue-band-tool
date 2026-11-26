@@ -16,7 +16,7 @@
     "彼女": "しずく"
   },
   "replace_speaker_in_body": true,
-  "format": "png",
+  "format": "keep",
   "quality": 100,
   "band_color": "#0C0C0E",
   "overlay_opacity": 0.5,
