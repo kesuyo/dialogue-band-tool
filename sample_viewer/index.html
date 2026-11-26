@@ -848,7 +848,7 @@
     padX: typeof def.padX === "number" ? def.padX : 0.045,
     textSpeed: "instant",
     autoSpeedLevel: 50,
-    replaceInBody: false,
+    replaceInBody: def.replaceInBody === true,
     dialogueVisible: true,
     sfxVisible: defaultSfxOn,
     pinTopbar: false
@@ -1008,7 +1008,21 @@
         if (protectedSet.has("彼")) protectedSet.add("彼女");
         const patternKeys = Array.from(protectedSet).sort((a, b) => b.length - a.length);
         const re = new RegExp(patternKeys.map(escapeRegExp).join("|"), "g");
+        // Words that merely contain 彼 are not the character; protect them.
+        const savedWords = [];
+        if (patternKeys.includes("彼")) {
+          ["彼ら", "彼等", "彼氏", "彼方", "彼岸"].forEach((w, i) => {
+            const token = "\uE000" + i + "\uE001";
+            if (out.includes(w)) {
+              out = out.split(w).join(token);
+              savedWords.push([token, w]);
+            }
+          });
+        }
         out = out.replace(re, match => getDisplaySpeaker(match));
+        for (const [token, w] of savedWords) {
+          out = out.split(token).join(w);
+        }
       }
     }
     return out;

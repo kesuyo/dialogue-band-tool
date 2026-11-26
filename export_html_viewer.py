@@ -286,6 +286,7 @@ def export_html_viewer(
 
     defaults = {
         "mode": str(cfg.get("mode", "overlay")).lower(),
+        "replaceInBody": bool(cfg.get("replace_speaker_in_body", False)),
         "position": str(cfg.get("position", "bottom")).lower(),
         "maxLines": int(cfg.get("max_lines", 2)),
         "overlayOpacity": round(float(cfg.get("overlay_opacity", 0.76)), 4),
@@ -1196,7 +1197,7 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     padX: typeof def.padX === "number" ? def.padX : 0.045,
     textSpeed: "instant",
     autoSpeedLevel: 50,
-    replaceInBody: false,
+    replaceInBody: def.replaceInBody === true,
     dialogueVisible: true,
     sfxVisible: defaultSfxOn,
     pinTopbar: false
@@ -1356,7 +1357,21 @@ VIEWER_HTML = r"""<!DOCTYPE html>
         if (protectedSet.has("彼")) protectedSet.add("彼女");
         const patternKeys = Array.from(protectedSet).sort((a, b) => b.length - a.length);
         const re = new RegExp(patternKeys.map(escapeRegExp).join("|"), "g");
+        // Words that merely contain 彼 are not the character; protect them.
+        const savedWords = [];
+        if (patternKeys.includes("彼")) {
+          ["彼ら", "彼等", "彼氏", "彼方", "彼岸"].forEach((w, i) => {
+            const token = "\uE000" + i + "\uE001";
+            if (out.includes(w)) {
+              out = out.split(w).join(token);
+              savedWords.push([token, w]);
+            }
+          });
+        }
         out = out.replace(re, match => getDisplaySpeaker(match));
+        for (const [token, w] of savedWords) {
+          out = out.split(token).join(w);
+        }
       }
     }
     return out;

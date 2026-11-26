@@ -18,6 +18,7 @@ window.__DIALOGUE_VIEWER_DATA__ = {
   },
   "defaults": {
     "mode": "overlay",
+    "replaceInBody": false,
     "position": "bottom",
     "maxLines": 2,
     "overlayOpacity": 0.5,

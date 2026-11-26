@@ -436,11 +436,13 @@ class TestEndToEndRendering(unittest.TestCase):
             self.assertEqual(l_big["name_size"], l_big["fit_meta"]["size"])
             self.assertGreater(l_big["name_size"], l_small["name_size"])
 
-            # Alias safety: renaming '彼' alone must not corrupt '彼女' in body text
+            # Alias safety: renaming '彼' alone must not corrupt '彼女' or compound words in body text
             alias_cfg = {"speaker_names": {"彼": "タロウ"}, "replace_speaker_in_body": True}
-            sp_out, tx_out = adb.apply_speaker_aliases("彼", "彼女と彼と{{彼}}", alias_cfg)
+            sp_out, tx_out = adb.apply_speaker_aliases(
+                "彼", "彼女と彼と彼らと彼等と彼氏と彼方と彼岸と{{彼}}", alias_cfg
+            )
             self.assertEqual(sp_out, "タロウ")
-            self.assertEqual(tx_out, "彼女とタロウとタロウ")
+            self.assertEqual(tx_out, "彼女とタロウと彼らと彼等と彼氏と彼方と彼岸とタロウ")
 
             for mode in ("extend", "overlay"):
                 for style in ("plate", "bar", "bracket", "plain"):
@@ -640,6 +642,7 @@ class TestHtmlViewerExport(unittest.TestCase):
             self.assertEqual(payload["displayTitle"], "サンプル物語")
             self.assertFalse(payload["hasAltImages"])
             self.assertIn("maxLines", payload["defaults"])
+            self.assertFalse(payload["defaults"]["replaceInBody"])
             self.assertEqual(payload["speakers"], ["さくら", "彼"])
             self.assertEqual(payload["speakerColors"]["さくら"], "#FF9EC7")
             self.assertAlmostEqual(payload["defaults"]["overlayOpacity"], 0.45, places=2)
@@ -694,9 +697,20 @@ class TestHtmlViewerExport(unittest.TestCase):
                 "cols-3",
                 "--font-px",
                 "100dvh",
+                "def.replaceInBody === true",
+                '"彼等"',
             ):
                 self.assertIn(token, html_raw)
             self.assertLess(html_raw.index("tabThumbImages"), html_raw.index("tabThumbScenes"))
+
+            # replace_speaker_in_body=True propagates into scenario.js defaults.replaceInBody
+            out_rep = root / "viewer_rep"
+            export_html_viewer.export_html_viewer(
+                src, csv_p, out_rep, dict(cfg, replace_speaker_in_body=True), title="置換ON"
+            )
+            rep_raw = (out_rep / "scenario.js").read_text(encoding="utf-8")
+            payload_rep = json.loads(rep_raw[len(prefix) :].rstrip().rstrip(";"))
+            self.assertTrue(payload_rep["defaults"]["replaceInBody"])
             for removed in (
                 "selSpeakerStyle",
                 "rngSpeakerScale",

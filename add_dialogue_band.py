@@ -603,11 +603,26 @@ def apply_speaker_aliases(speaker, text, cfg):
                 protected = set(active)
                 if "\u5f7c" in protected:
                     protected.add("\u5f7c\u5973")
+                # Words that merely contain \u5f7c must not be rewritten
+                # (\u5f7c\u3089 / \u5f7c\u7b49 / \u5f7c\u6c0f / \u5f7c\u65b9 / \u5f7c\u5cb8 are not the character).
+                exceptions = (
+                    ["\u5f7c\u3089", "\u5f7c\u7b49", "\u5f7c\u6c0f", "\u5f7c\u65b9", "\u5f7c\u5cb8"]
+                    if "\u5f7c" in protected
+                    else []
+                )
+                saved = {}
+                for i, w in enumerate(exceptions):
+                    token = f"\ue000{i}\ue001"
+                    if w in out_text:
+                        out_text = out_text.replace(w, token)
+                        saved[token] = w
                 pattern_keys = sorted(protected, key=len, reverse=True)
                 pat = re.compile("|".join(re.escape(k) for k in pattern_keys))
                 out_text = pat.sub(
                     lambda m: aliases.get(m.group(0), "").strip() or m.group(0), out_text
                 )
+                for token, w in saved.items():
+                    out_text = out_text.replace(token, w)
     return disp_speaker, out_text
 
 
