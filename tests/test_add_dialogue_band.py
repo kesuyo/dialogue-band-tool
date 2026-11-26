@@ -556,6 +556,40 @@ class TestGuiApp(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_gui_refresh_speaker_list_multiline_and_3speaker_template(self):
+        import tkinter as tk
+        import gui
+
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tkinter unavailable: {exc}")
+        root.withdraw()
+        try:
+            app = gui.DialogueBandApp(root)
+            with tempfile.TemporaryDirectory() as td:
+                csv_p = Path(td) / "multi.csv"
+                csv_p.write_text(
+                    "001,彼女A,セリフ1\n"
+                    "001,彼女B,セリフ2\n"
+                    "001,彼,セリフ3\n",
+                    encoding="utf-8",
+                )
+                app.speaker_colors.clear()
+                app.speaker_names.clear()
+                app.script_var.set(str(csv_p))
+                app._refresh_speaker_list()
+                self.assertEqual(tuple(app.speaker_combo["values"]), ("彼女A", "彼女B", "彼"))
+
+            tpl_cfg = ROOT / "sample_config_3speakers.json"
+            self.assertTrue(app.load_config_file(str(tpl_cfg), silent=True))
+            self.assertEqual(set(app.speaker_colors.keys()), {"彼女A", "彼女B", "彼"})
+            self.assertEqual(set(app.speaker_names.keys()), {"彼女A", "彼女B", "彼"})
+            self.assertTrue(app.replace_in_body_var.get())
+            self.assertFalse(app.auto_colors_var.get())
+        finally:
+            root.destroy()
+
 
 class TestHtmlViewerExport(unittest.TestCase):
     def test_load_script_sequence_allows_multiple_lines_per_image(self):

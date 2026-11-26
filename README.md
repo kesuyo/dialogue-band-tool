@@ -162,6 +162,7 @@ GUI の「保存」ボタンから書き出せるほか、テキストエディ�
 - `gui.py` : デスクトップGUI（タブ構成・ライブプレビュー・一括生成・HTML書き出し・設定保存）
 - `launch_gui.bat` : Windows 用ダブルクリック起動ランチャー
 - `sample_config.json` : 設定ファイル見本
+- `sample_config_3speakers.json` : 3名構成（女性キャラ2名＋ユーザー側1名）向けの設定ファイルひな形
 - `sample_input/` : 見本の入力画像3枚
 - `sample_script.csv` : 見本の台本（3行）
 - `sample_viewer/` : HTML ノベルビューアの出力見本（`index.html` を開いて確認可能）
@@ -171,4 +172,4 @@ GUI の「保存」ボタンから書き出せるほか、テキストエディ�
 ```bash
 python -m unittest discover -s tests -v
 ```
-（禁則・折り返し・CSV読込・フォントフォールバック・`extend`/`overlay`/`--uniform-height`/`--uniform-font`/話者デザイン＆名前変更・上配置・透過＆縁取り・解像度スケーリング/JPEG変換/`--dry-run`/`--strict`/GUI設定ラウンドトリップ/HTMLビューア書き出し・効果音差分切替の 21 テストを収録）
+（禁則・折り返し・CSV読込・フォントフォールバック・`extend`/`overlay`/`--uniform-height`/`--uniform-font`/話者デザイン＆名前変更・上配置・透過＆縁取り・解像度スケーリング/JPEG変換/`--dry-run`/`--strict`/GUI設定ラウンドトリップ/HTMLビューア書き出し・効果音差分切替の 22 テストを収録）

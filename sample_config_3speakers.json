@@ -1,0 +1,35 @@
+{
+  "mode": "extend",
+  "position": "bottom",
+  "band": 0.16,
+  "max_lines": 2,
+  "font_scale": 0.65,
+  "uniform_font": true,
+  "uniform_height": true,
+  "text_offset_y": 0.0,
+  "pad_x": 0.045,
+  "line_height": 1.45,
+  "speaker_style": "bar",
+  "speaker_gap": 0.5,
+  "speaker_names": {
+    "彼女A": "さくら",
+    "彼女B": "ゆい",
+    "彼": "たろう"
+  },
+  "replace_speaker_in_body": true,
+  "format": "png",
+  "quality": 100,
+  "band_color": "#0C0C0E",
+  "overlay_opacity": 0.5,
+  "overlay_fade": 0.3,
+  "overlay_margin": 0.0,
+  "text_outline": 1,
+  "text_color": "#FFFFFF",
+  "narration_color": "#EAEDF5",
+  "auto_speaker_colors": false,
+  "speaker_colors": {
+    "彼女A": "#FF9EC7",
+    "彼女B": "#FFD78C",
+    "彼": "#96C8FF"
+  }
+}

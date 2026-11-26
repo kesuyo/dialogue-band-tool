@@ -573,15 +573,25 @@ class DialogueBandApp:
             script_path = self.script_var.get().strip()
             if script_path and Path(script_path).is_file():
                 try:
-                    script, _ = adb.load_script(script_path)
+                    entries, _ = export_html_viewer.load_script_sequence(script_path)
                 except Exception:
-                    script = {}
+                    entries = []
             else:
-                script = {}
-        for key in sorted(script):
-            sp = script[key][0]
-            if sp and sp not in names:
-                names.append(sp)
+                entries = []
+            for ent in entries:
+                sp = (ent.get("speaker") or "").strip()
+                if sp and sp not in names:
+                    names.append(sp)
+        elif isinstance(script, dict):
+            for key in sorted(script):
+                sp = script[key][0]
+                if sp and sp not in names:
+                    names.append(sp)
+        else:
+            for ent in script:
+                sp = (ent.get("speaker") or "").strip()
+                if sp and sp not in names:
+                    names.append(sp)
         self.speaker_combo["values"] = names
         if names and self.speaker_sel_var.get() not in names:
             self.speaker_sel_var.set(names[0])
