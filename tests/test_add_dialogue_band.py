@@ -733,6 +733,10 @@ class TestHtmlViewerExport(unittest.TestCase):
                 "100dvh",
                 "def.replaceInBody === true",
                 '"彼等"',
+                "requestWakeLock",
+                "scheduleWakeLockRelease",
+                "navigator.wakeLock",
+                "visibilitychange",
             ):
                 self.assertIn(token, html_raw)
             self.assertLess(html_raw.index("tabThumbImages"), html_raw.index("tabThumbScenes"))

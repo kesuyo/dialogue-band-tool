@@ -1656,6 +1656,10 @@ VIEWER_HTML = r"""<!DOCTYPE html>
     }
     if (autoPlaying) {
       scheduleNextAuto(false);
+      cancelWakeLockRelease();
+      requestWakeLock();
+    } else {
+      scheduleWakeLockRelease();
     }
   }
 
@@ -2267,6 +2271,45 @@ VIEWER_HTML = r"""<!DOCTYPE html>
   if (settings.dialogueVisible) {
     showTopbar(2200);
   }
+
+  // Screen Wake Lock: hold the screen on only while autoplay is running
+  let wakeLock = null;
+  let wakeLockRequesting = false;
+  let wakeLockReleaseTimer = null;
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator) || wakeLock || wakeLockRequesting) return;
+    wakeLockRequesting = true;
+    try {
+      const sentinel = await navigator.wakeLock.request("screen");
+      sentinel.addEventListener("release", () => {
+        if (wakeLock === sentinel) wakeLock = null;
+      });
+      wakeLock = sentinel;
+      if (!autoPlaying && !wakeLockReleaseTimer) {
+        releaseWakeLock();
+      }
+    } catch (e) { /* not allowed right now; retried when autoplay starts */ }
+    finally {
+      wakeLockRequesting = false;
+    }
+  }
+  function releaseWakeLock() {
+    const wl = wakeLock;
+    wakeLock = null;
+    if (wl) {
+      try { Promise.resolve(wl.release()).catch(() => {}); } catch (e) {}
+    }
+  }
+  function scheduleWakeLockRelease() {
+    cancelWakeLockRelease();
+    wakeLockReleaseTimer = setTimeout(() => { wakeLockReleaseTimer = null; releaseWakeLock(); }, 5000);
+  }
+  function cancelWakeLockRelease() {
+    if (wakeLockReleaseTimer) { clearTimeout(wakeLockReleaseTimer); wakeLockReleaseTimer = null; }
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && autoPlaying) requestWakeLock();
+  });
 })();
 </script>
 </body>
